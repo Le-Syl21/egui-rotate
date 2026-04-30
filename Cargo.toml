@@ -1,0 +1,36 @@
+[package]
+name = "egui-rotate"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]
+description = "Viewport rotation (0/90/180/270°) for egui — transparent input/output remapping and a rotated software cursor."
+keywords = ["egui", "rotation", "viewport", "kiosk", "pinball"]
+categories = ["gui", "graphics"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Le-Syl21/egui-rotate"
+readme = "README.md"
+
+[features]
+default = []
+software-cursor = []
+serde = ["dep:serde", "egui/serde"]
+
+[dependencies]
+egui = { version = ">=0.34, <0.36", default-features = false }
+serde = { version = "1", optional = true, features = ["derive"] }
+
+[dev-dependencies]
+egui = ">=0.34, <0.36"
+egui_glow = ">=0.34, <0.36"
+egui-winit = ">=0.34, <0.36"
+glow = "0.17"
+glutin = "0.32"
+glutin-winit = "0.5"
+log = "0.4"
+env_logger = "0.11"
+
+[[example]]
+name = "rotated_demo"
+required-features = ["software-cursor"]
+
