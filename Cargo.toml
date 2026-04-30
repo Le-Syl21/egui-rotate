@@ -1,6 +1,6 @@
 [package]
 name = "egui-rotate"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.92"
 authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-30
+
+### Added
+- `SoftwareCursor::set_virtual_pos(pos)` — force-capture the cursor at a
+  given logical position. Required when entering a kiosk mode that grabs
+  the OS cursor (e.g. via `ViewportCommand::CursorGrab(CursorGrab::Locked)`
+  on Wayland) — under such a grab the OS cursor is frozen, no
+  `Event::PointerMoved` is delivered, and the cursor would otherwise
+  never start tracking relative-motion deltas.
+
 ## [0.1.2] - 2026-04-30
 
 ### Fixed

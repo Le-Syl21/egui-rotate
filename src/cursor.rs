@@ -107,6 +107,20 @@ impl SoftwareCursor {
         self.virtual_pos
     }
 
+    /// Force-capture the cursor at a specific logical position.
+    ///
+    /// Useful at kiosk-mode entry when the OS cursor is grabbed (e.g. via
+    /// `egui::ViewportCommand::CursorGrab(CursorGrab::Locked)` on Wayland).
+    /// Under that grab the OS cursor is frozen — `Event::PointerMoved` is
+    /// no longer fired, only relative-motion `Event::MouseMoved` events
+    /// flow. Without a `PointerMoved` to seed the capture state, the cursor
+    /// would never start tracking. Call this once at activation with the
+    /// window centre to bootstrap.
+    pub fn set_virtual_pos(&mut self, pos: Pos2) {
+        self.captured = true;
+        self.virtual_pos = Some(pos);
+    }
+
     /// Process raw input: update virtual cursor state, rewrite events.
     ///
     /// Call **after** [`crate::transform_raw_input`] (or in place of it — this
