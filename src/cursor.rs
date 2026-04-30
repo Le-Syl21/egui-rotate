@@ -237,9 +237,19 @@ impl SoftwareCursor {
     /// Call once per frame, **after** the UI is laid out so the cursor draws on top.
     /// Use a foreground layer / top-most painter (e.g. `ctx.layer_painter(LayerId::new(Order::Foreground, …))`).
     ///
-    /// `cursor_icon` is the icon you want drawn. Typically read from
-    /// [`egui::PlatformOutput::cursor_icon`] **before** rotation, then rotated
-    /// via [`crate::CursorIconExt::rotate`].
+    /// `cursor_icon` is the icon as set by egui (read from
+    /// [`egui::PlatformOutput::cursor_icon`]). **Pass it un-rotated** — the
+    /// shape is drawn in *logical* (rotated) UI space, and the inverse rotation
+    /// applied at paint time by [`crate::transform_clipped_primitives`] produces
+    /// the correct visual orientation on screen automatically. Pre-rotating the
+    /// icon via [`crate::CursorIconExt::rotate`] would double the rotation and
+    /// flip the shape the wrong way (e.g. text I-beam parallel to text instead
+    /// of perpendicular).
+    ///
+    /// [`crate::CursorIconExt::rotate`] is for the *other* scenario — when the
+    /// OS cursor is visible (no software cursor) and you want to set
+    /// [`egui::ViewportCommand::CursorIcon`] to a value that visually matches
+    /// the user's perception of the rotated screen.
     pub fn draw(&self, painter: &Painter, cursor_icon: CursorIcon) {
         let Some(pos) = self.virtual_pos else { return };
         paint_cursor_shape(painter, cursor_icon, pos, self.scale);

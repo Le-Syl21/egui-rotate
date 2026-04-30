@@ -11,7 +11,7 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use egui_rotate::{transform_clipped_primitives, CursorIconExt, Rotation, SoftwareCursor};
+use egui_rotate::{transform_clipped_primitives, Rotation, SoftwareCursor};
 use egui_winit::winit;
 use winit::raw_window_handle::HasWindowHandle as _;
 
@@ -362,7 +362,10 @@ impl DemoApp {
         let cursor = &self.cursor;
         let cursor_locked = cursor.is_locked();
         // Use the previous frame's cursor icon (1 frame of latency — fine for visuals).
-        let cursor_icon = self.last_cursor_icon.rotate(rotation);
+        // Pass it un-rotated: the inverse rotation at paint time produces the
+        // correct visual orientation (a logical-vertical I-beam becomes a
+        // physical-horizontal one, perpendicular to the rotated text).
+        let cursor_icon = self.last_cursor_icon;
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
             demo_ui(ui, counter, text, slider, rotation, cursor_locked);
 

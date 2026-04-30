@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-30
+
+### Fixed
+- Clarified that `SoftwareCursor::draw` expects the un-rotated cursor icon
+  (as set by egui). Pre-rotating via `CursorIconExt::rotate` would double the
+  rotation and flip the shape — e.g. the text I-beam would render parallel to
+  the text instead of perpendicular. `CursorIconExt::rotate` is now documented
+  as the API for the OS-cursor scenario only.
+- Updated `examples/rotated_demo` accordingly (no API change).
+
 ## [0.1.0] - TBD
 
 ### Added
