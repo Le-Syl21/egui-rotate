@@ -89,11 +89,11 @@ jobs:
       - run: cargo doc --no-deps --all-features
 
   msrv:
-    name: MSRV (1.81)
+    name: MSRV (1.92)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.81
+      - uses: dtolnay/rust-toolchain@1.92
       - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt-get update

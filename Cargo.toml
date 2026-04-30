@@ -2,7 +2,7 @@
 name = "egui-rotate"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.92"
 authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]
 description = "Viewport rotation (0/90/180/270°) for egui — transparent input/output remapping and a rotated software cursor."
 keywords = ["egui", "rotation", "viewport", "kiosk", "pinball"]
