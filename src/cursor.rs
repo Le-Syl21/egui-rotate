@@ -247,9 +247,10 @@ impl SoftwareCursor {
     /// of perpendicular).
     ///
     /// [`crate::CursorIconExt::rotate`] is for the *other* scenario — when the
-    /// OS cursor is visible (no software cursor) and you want to set
-    /// [`egui::ViewportCommand::CursorIcon`] to a value that visually matches
-    /// the user's perception of the rotated screen.
+    /// OS cursor is visible (no software cursor) and you want to remap the icon
+    /// (set via [`egui::Context::set_cursor_icon`]) so that directional cursors
+    /// like resize arrows visually match the user's perception of the rotated
+    /// screen.
     pub fn draw(&self, painter: &Painter, cursor_icon: CursorIcon) {
         let Some(pos) = self.virtual_pos else { return };
         paint_cursor_shape(painter, cursor_icon, pos, self.scale);

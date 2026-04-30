@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-30
+
+### Fixed
+- Fix `cargo doc -D warnings` (broken intra-doc link to a non-existent
+  `egui::ViewportCommand::CursorIcon` variant — replaced by a reference to
+  `egui::Context::set_cursor_icon`). No code change vs. 0.1.1.
+
 ## [0.1.1] - 2026-04-30
 
 ### Fixed
