@@ -393,7 +393,7 @@ impl DemoApp {
             .handle_platform_output(window, platform_output);
 
         // ── 5. Tessellate (already includes the cursor shape from inside run_ui)
-        let logical_size = self.egui_ctx.content_rect().size();
+        let logical_size = self.egui_ctx.viewport_rect().size();
         let mut clipped_primitives = self
             .egui_ctx
             .tessellate(full_output.shapes, full_output.pixels_per_point);
