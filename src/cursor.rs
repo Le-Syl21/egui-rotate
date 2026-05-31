@@ -324,14 +324,37 @@ fn paint_cursor_shape(painter: &Painter, cursor: CursorIcon, pos: Pos2, scale: f
         }
 
         CursorIcon::PointingHand | CursorIcon::Grab | CursorIcon::Grabbing => {
-            let r = 6.0 * s;
-            let shapes = vec![
-                Shape::circle_filled(pos, r, Color32::WHITE),
-                Shape::circle_stroke(pos, r, Stroke::new(1.5 * s, Color32::BLACK)),
+            // Stylised pointing hand: narrow index finger on top widening
+            // into a fist below. Drawn as a single convex polygon so the
+            // outline stays clean (no internal seam between finger and
+            // palm). The tip of the finger sits exactly at `pos` — that
+            // is the hot-spot, matching the OS pointing-hand convention.
+            let finger_w = 4.0 * s;
+            let finger_h = 10.0 * s;
+            let base_w = 9.0 * s;
+            let base_h = 9.0 * s;
+            let base_y = finger_h + base_h;
+            let pts = vec![
+                pos + vec2(-finger_w / 2.0, 0.0),
+                pos + vec2(finger_w / 2.0, 0.0),
+                pos + vec2(finger_w / 2.0 + 1.0 * s, finger_h - 2.0 * s),
+                pos + vec2(base_w / 2.0 + 1.0 * s, finger_h),
+                pos + vec2(base_w / 2.0 + 1.0 * s, base_y),
+                pos + vec2(-base_w / 2.0 + 1.0 * s, base_y),
+                pos + vec2(-base_w / 2.0 + 1.0 * s, finger_h),
+                pos + vec2(-finger_w / 2.0 - 1.0 * s, finger_h - 2.0 * s),
             ];
+            let shapes = vec![Shape::Path(PathShape::convex_polygon(
+                pts,
+                Color32::WHITE,
+                Stroke::new(1.5 * s, Color32::BLACK),
+            ))];
             (
                 shapes,
-                Rect::from_center_size(pos, vec2(20.0 * s, 20.0 * s)),
+                Rect::from_min_size(
+                    pos + vec2(-base_w / 2.0 - 2.0 * s, -s),
+                    vec2(base_w + 4.0 * s, base_y + 2.0 * s),
+                ),
             )
         }
 
