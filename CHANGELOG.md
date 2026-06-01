@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-06-01
+
+### Changed
+- Reworked the software-cursor visuals. The default arrow and the
+  `PointingHand` / `Grab` / `Grabbing` cursor are now baked from SVG outlines
+  (`assets/`), with their concave shapes triangulated offline so the fill
+  renders without the convexity artefacts of epaint's closed-path fill.
+- The drawn cursor colour now follows the egui theme — white ink on a dark
+  theme, black ink on a light one — so it always contrasts the background.
+
+### Added
+- `rotated_demo`: in-UI "Rotate" button and a crates.io hyperlink (the latter
+  exercises the pointing-hand cursor over a clickable element).
+
+## [0.1.4] - 2026-05-31
+
+### Changed
+- Replaced the `PointingHand` cursor's placeholder circle with a stylised
+  pointing-hand shape.
+
 ## [0.1.3] - 2026-04-30
 
 ### Added
@@ -50,5 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rotated_demo` example — winit + glow + egui_glow integration demonstrating
   every feature, with `R` to cycle rotation and `L` to toggle the cursor lock
 
-[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.3...v0.1.4
 [0.1.0]: https://github.com/Le-Syl21/egui-rotate/releases/tag/v0.1.0

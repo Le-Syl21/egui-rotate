@@ -358,7 +358,7 @@ impl DemoApp {
         let counter = &mut self.counter;
         let text = &mut self.text;
         let slider = &mut self.slider;
-        let rotation = self.rotation;
+        let mut rotation = self.rotation;
         let cursor = &self.cursor;
         let cursor_locked = cursor.is_locked();
         // Use the previous frame's cursor icon (1 frame of latency — fine for visuals).
@@ -366,8 +366,9 @@ impl DemoApp {
         // correct visual orientation (a logical-vertical I-beam becomes a
         // physical-horizontal one, perpendicular to the rotated text).
         let cursor_icon = self.last_cursor_icon;
+        let mut rotation_changed = false;
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
-            demo_ui(ui, counter, text, slider, rotation, cursor_locked);
+            rotation_changed = demo_ui(ui, counter, text, slider, &mut rotation, cursor_locked);
 
             if !rotation.is_none() {
                 let painter = ui.ctx().layer_painter(egui::LayerId::new(
@@ -377,6 +378,13 @@ impl DemoApp {
                 cursor.draw(&painter, cursor_icon);
             }
         });
+
+        if rotation_changed {
+            self.rotation = rotation;
+            log::info!("rotation → {:?}", self.rotation);
+            self.refresh_cursor_grab();
+            self.gl_window.as_ref().unwrap().window().request_redraw();
+        }
 
         // Remember the icon set during this pass, for next frame's cursor visual.
         self.last_cursor_icon = full_output.platform_output.cursor_icon;
@@ -431,14 +439,27 @@ fn demo_ui(
     counter: &mut u32,
     text: &mut String,
     slider: &mut f32,
-    rotation: Rotation,
+    rotation: &mut Rotation,
     cursor_locked: bool,
-) {
-    ui.heading(format!("egui-rotate demo — {rotation:?}"));
-    ui.label(format!(
-        "R = cycle rotation · L = toggle cursor lock ({}) · Esc = quit",
-        if cursor_locked { "ON" } else { "OFF" }
-    ));
+) -> bool {
+    let mut rotation_changed = false;
+    ui.heading(format!("egui-rotate demo — {:?}", *rotation));
+    ui.horizontal(|ui| {
+        ui.label("R = cycle rotation");
+        if ui.button("Rotate ↻").clicked() {
+            *rotation = match *rotation {
+                Rotation::None => Rotation::CW90,
+                Rotation::CW90 => Rotation::CW180,
+                Rotation::CW180 => Rotation::CW270,
+                Rotation::CW270 => Rotation::None,
+            };
+            rotation_changed = true;
+        }
+        ui.label(format!(
+            "· L = cursor lock ({}) · Esc = quit",
+            if cursor_locked { "ON" } else { "OFF" }
+        ));
+    });
     ui.separator();
 
     ui.label("Click the buttons, drag the slider, type in the text field.");
@@ -459,6 +480,15 @@ fn demo_ui(
     ui.add(egui::Slider::new(slider, 0.0..=1.0).text("slider"));
     ui.text_edit_singleline(text);
 
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("crate:");
+        ui.hyperlink_to(
+            "egui-rotate on crates.io",
+            "https://crates.io/crates/egui-rotate",
+        );
+    });
+
     ui.separator();
     ui.label("Logical screen rect:");
     ui.monospace(format!("{:?}", ui.ctx().content_rect()));
@@ -474,6 +504,8 @@ fn demo_ui(
                 });
             }
         });
+
+    rotation_changed
 }
 
 fn main() {
