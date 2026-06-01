@@ -40,11 +40,15 @@ fn text_becomes_vertical_text() {
     );
 }
 
+// Directional resize cursors counter-rotate to stay correct on the rotated
+// screen (the OS draws its cursor un-rotated in physical space). For CW90 a
+// logical "east" resize must be drawn pointing north, etc. See
+// `cursor_consistency.rs` for the derivation from `inverse_transform_pos`.
 #[test]
-fn directional_rotates_clockwise() {
+fn directional_counter_rotates() {
     assert_eq!(
         CursorIcon::ResizeEast.rotate(Rotation::CW90),
-        CursorIcon::ResizeSouth
+        CursorIcon::ResizeNorth
     );
     assert_eq!(
         CursorIcon::ResizeEast.rotate(Rotation::CW180),
@@ -52,7 +56,7 @@ fn directional_rotates_clockwise() {
     );
     assert_eq!(
         CursorIcon::ResizeEast.rotate(Rotation::CW270),
-        CursorIcon::ResizeNorth
+        CursorIcon::ResizeSouth
     );
 }
 
@@ -60,7 +64,7 @@ fn directional_rotates_clockwise() {
 fn diagonal_resize_remap() {
     assert_eq!(
         CursorIcon::ResizeNorthEast.rotate(Rotation::CW90),
-        CursorIcon::ResizeSouthEast
+        CursorIcon::ResizeNorthWest
     );
     assert_eq!(
         CursorIcon::ResizeNorthEast.rotate(Rotation::CW180),
@@ -68,7 +72,7 @@ fn diagonal_resize_remap() {
     );
     assert_eq!(
         CursorIcon::ResizeNorthEast.rotate(Rotation::CW270),
-        CursorIcon::ResizeNorthWest
+        CursorIcon::ResizeSouthEast
     );
 }
 

@@ -332,10 +332,10 @@ fn paint_cursor_shape(painter: &Painter, cursor: CursorIcon, pos: Pos2, scale: f
         }
 
         CursorIcon::PointingHand | CursorIcon::Grab | CursorIcon::Grabbing => {
-            // Navigation arrow pointing right. Baked from
-            // `assets/cursor-svgrepo-com.svg` (curves flattened and the concave
-            // outline ear-clipped offline — see the const tables below). The tip
-            // sits exactly at `pos` (hot-spot), matching the link-pointer convention.
+            // Navigation arrow pointing right, baked from an SVG outline (curves
+            // flattened and the concave outline ear-clipped offline — see the
+            // const tables below). The tip sits exactly at `pos` (hot-spot),
+            // matching the link-pointer convention.
             baked_cursor_colored(pos, s, NAV_CURSOR_PTS, NAV_CURSOR_TRIS, ink, ink)
         }
 
@@ -374,8 +374,8 @@ fn paint_cursor_shape(painter: &Painter, cursor: CursorIcon, pos: Pos2, scale: f
         }
 
         _ => {
-            // Default arrow pointing up-left, baked from
-            // `assets/mouse-cursor-svgrepo-com.svg`. The tip is at `pos` (hot-spot).
+            // Default arrow pointing up-left, baked from an SVG outline.
+            // The tip is at `pos` (hot-spot).
             baked_cursor_colored(pos, s, ARROW_PTS, ARROW_TRIS, ink, ink)
         }
     };
@@ -430,12 +430,11 @@ fn baked_cursor_colored(
 
 // ── Baked cursor geometry ───────────────────────────────────────────────────
 // Outline points (local pixels, hot-spot at origin) and ear-clipped triangle
-// indices, generated offline from the SVGs in `assets/`. Curves are flattened
-// to line segments; the triangle list lets the concave fill render without the
+// indices, generated offline from SVG outlines. Curves are flattened to line
+// segments; the triangle list lets the concave fill render without the
 // convexity artefacts of epaint's closed-path fill.
 
-/// Default arrow, from `assets/mouse-cursor-svgrepo-com.svg` (tip at origin,
-/// pointing up-left).
+/// Default arrow (tip at origin, pointing up-left).
 const ARROW_PTS: &[[f32; 2]] = &[
     [0.000, 0.000],
     [17.000, 5.000],
@@ -447,8 +446,8 @@ const ARROW_PTS: &[[f32; 2]] = &[
 ];
 const ARROW_TRIS: &[u32] = &[0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6];
 
-/// Navigation arrow, from `assets/cursor-svgrepo-com.svg` (tip at origin,
-/// pointing right). Used for `PointingHand` / `Grab` / `Grabbing`.
+/// Navigation arrow (tip at origin, pointing right). Used for
+/// `PointingHand` / `Grab` / `Grabbing`.
 const NAV_CURSOR_PTS: &[[f32; 2]] = &[
     [-0.050, 0.464],
     [-0.195, 0.891],

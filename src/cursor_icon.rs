@@ -56,53 +56,58 @@ impl CursorIconExt for CursorIcon {
                 _ => self,
             },
 
-            // Single-direction resize cursors: rotate clockwise
+            // Single-direction resize cursors. The viewport is rotated, but the
+            // OS draws its cursor un-rotated in physical screen space, so the icon
+            // must be *counter*-rotated to point the right way on screen — i.e.
+            // the same directional mapping `inverse_transform_pos` applies to the
+            // drawn software cursor. (For 90°/270° that is the opposite sense to
+            // the screen's visual rotation.)
             Self::ResizeEast => match rotation {
-                Rotation::CW90 => Self::ResizeSouth,
-                Rotation::CW180 => Self::ResizeWest,
-                Rotation::CW270 => Self::ResizeNorth,
-                _ => self,
-            },
-            Self::ResizeSouthEast => match rotation {
-                Rotation::CW90 => Self::ResizeSouthWest,
-                Rotation::CW180 => Self::ResizeNorthWest,
-                Rotation::CW270 => Self::ResizeNorthEast,
-                _ => self,
-            },
-            Self::ResizeSouth => match rotation {
-                Rotation::CW90 => Self::ResizeWest,
-                Rotation::CW180 => Self::ResizeNorth,
-                Rotation::CW270 => Self::ResizeEast,
-                _ => self,
-            },
-            Self::ResizeSouthWest => match rotation {
-                Rotation::CW90 => Self::ResizeNorthWest,
-                Rotation::CW180 => Self::ResizeNorthEast,
-                Rotation::CW270 => Self::ResizeSouthEast,
-                _ => self,
-            },
-            Self::ResizeWest => match rotation {
                 Rotation::CW90 => Self::ResizeNorth,
-                Rotation::CW180 => Self::ResizeEast,
+                Rotation::CW180 => Self::ResizeWest,
                 Rotation::CW270 => Self::ResizeSouth,
                 _ => self,
             },
-            Self::ResizeNorthWest => match rotation {
+            Self::ResizeSouthEast => match rotation {
                 Rotation::CW90 => Self::ResizeNorthEast,
-                Rotation::CW180 => Self::ResizeSouthEast,
+                Rotation::CW180 => Self::ResizeNorthWest,
                 Rotation::CW270 => Self::ResizeSouthWest,
                 _ => self,
             },
-            Self::ResizeNorth => match rotation {
+            Self::ResizeSouth => match rotation {
                 Rotation::CW90 => Self::ResizeEast,
-                Rotation::CW180 => Self::ResizeSouth,
+                Rotation::CW180 => Self::ResizeNorth,
                 Rotation::CW270 => Self::ResizeWest,
                 _ => self,
             },
-            Self::ResizeNorthEast => match rotation {
+            Self::ResizeSouthWest => match rotation {
                 Rotation::CW90 => Self::ResizeSouthEast,
-                Rotation::CW180 => Self::ResizeSouthWest,
+                Rotation::CW180 => Self::ResizeNorthEast,
                 Rotation::CW270 => Self::ResizeNorthWest,
+                _ => self,
+            },
+            Self::ResizeWest => match rotation {
+                Rotation::CW90 => Self::ResizeSouth,
+                Rotation::CW180 => Self::ResizeEast,
+                Rotation::CW270 => Self::ResizeNorth,
+                _ => self,
+            },
+            Self::ResizeNorthWest => match rotation {
+                Rotation::CW90 => Self::ResizeSouthWest,
+                Rotation::CW180 => Self::ResizeSouthEast,
+                Rotation::CW270 => Self::ResizeNorthEast,
+                _ => self,
+            },
+            Self::ResizeNorth => match rotation {
+                Rotation::CW90 => Self::ResizeWest,
+                Rotation::CW180 => Self::ResizeSouth,
+                Rotation::CW270 => Self::ResizeEast,
+                _ => self,
+            },
+            Self::ResizeNorthEast => match rotation {
+                Rotation::CW90 => Self::ResizeNorthWest,
+                Rotation::CW180 => Self::ResizeSouthWest,
+                Rotation::CW270 => Self::ResizeSouthEast,
                 _ => self,
             },
 

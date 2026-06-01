@@ -11,7 +11,9 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use egui_rotate::{transform_clipped_primitives, Rotation, SoftwareCursor};
+use egui_rotate::{
+    transform_clipped_primitives, transform_raw_input, CursorIconExt, Rotation, SoftwareCursor,
+};
 use egui_winit::winit;
 use winit::raw_window_handle::HasWindowHandle as _;
 
@@ -147,6 +149,10 @@ struct DemoApp {
     painter: Option<egui_glow::Painter>,
     rotation: Rotation,
     cursor: SoftwareCursor,
+    /// When `true`, demonstrate the *OS* cursor path: keep the OS cursor visible
+    /// and remap its icon with `CursorIconExt::rotate`, instead of drawing the
+    /// software cursor. Toggled with `C`.
+    os_cursor_mode: bool,
     last_cursor_icon: egui::CursorIcon,
     counter: u32,
     text: String,
@@ -163,6 +169,7 @@ impl DemoApp {
             painter: None,
             rotation: Rotation::CW90,
             cursor: SoftwareCursor::new().with_lock(false).with_scale(1.5),
+            os_cursor_mode: false,
             last_cursor_icon: egui::CursorIcon::Default,
             counter: 0,
             text: String::from("type here"),
@@ -180,7 +187,9 @@ impl DemoApp {
             return;
         };
         let window = gl_window.window();
-        let active = !self.rotation.is_none() && self.cursor.is_captured();
+        // In OS-cursor mode the OS cursor must stay visible — we remap its icon
+        // rather than draw our own.
+        let active = !self.os_cursor_mode && !self.rotation.is_none() && self.cursor.is_captured();
         window.set_cursor_visible(!active);
         let mode = if active && self.cursor.is_locked() {
             winit::window::CursorGrabMode::Confined
@@ -286,6 +295,12 @@ impl winit::application::ApplicationHandler for DemoApp {
                     self.refresh_cursor_grab();
                     self.gl_window.as_ref().unwrap().window().request_redraw();
                 }
+                Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                    self.os_cursor_mode = !self.os_cursor_mode;
+                    log::info!("OS-cursor mode → {}", self.os_cursor_mode);
+                    self.refresh_cursor_grab();
+                    self.gl_window.as_ref().unwrap().window().request_redraw();
+                }
                 _ => {}
             }
         }
@@ -333,25 +348,32 @@ impl DemoApp {
                 Some(egui::Rect::from_min_size(egui::Pos2::ZERO, physical_size));
         }
 
-        // ── 2. Apply input rotation + software cursor capture BEFORE egui sees the input.
-        //       process_input does the same job as transform_raw_input plus capture/release.
-        let was_captured = self.cursor.is_captured();
-        let cursor_out = self
-            .cursor
-            .process_input(&mut raw_input, self.rotation, physical_size);
+        // ── 2. Rotate input before egui sees it.
+        let os_mode = self.os_cursor_mode;
+        if os_mode {
+            // OS-cursor mode: rotate input only. The OS keeps drawing (and moving)
+            // its own cursor; we remap just the *icon* via CursorIconExt::rotate
+            // when handing platform output back (step 4).
+            transform_raw_input(&mut raw_input, self.rotation);
+        } else {
+            // Software-cursor mode: process_input does the rotation plus the
+            // virtual-cursor capture/release.
+            let was_captured = self.cursor.is_captured();
+            let cursor_out =
+                self.cursor
+                    .process_input(&mut raw_input, self.rotation, physical_size);
 
-        // If the cursor was just released to the OS, warp the OS cursor to that position
-        // (3px outside the window so the user sees their cursor exit cleanly).
-        if let Some(release_pos) = cursor_out.release_os_cursor_to {
-            let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(
-                release_pos.x as f64,
-                release_pos.y as f64,
-            ));
-        }
-
-        // Sync OS cursor visibility / grab if capture state changed.
-        if was_captured != self.cursor.is_captured() {
-            self.refresh_cursor_grab();
+            // If the cursor was just released to the OS, warp it 3px outside the
+            // window so the user sees it exit cleanly.
+            if let Some(release_pos) = cursor_out.release_os_cursor_to {
+                let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(
+                    release_pos.x as f64,
+                    release_pos.y as f64,
+                ));
+            }
+            if was_captured != self.cursor.is_captured() {
+                self.refresh_cursor_grab();
+            }
         }
 
         // ── 3. Run UI in logical (rotated) space, drawing the software cursor inside the pass
@@ -368,9 +390,18 @@ impl DemoApp {
         let cursor_icon = self.last_cursor_icon;
         let mut rotation_changed = false;
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
-            rotation_changed = demo_ui(ui, counter, text, slider, &mut rotation, cursor_locked);
+            rotation_changed = demo_ui(
+                ui,
+                counter,
+                text,
+                slider,
+                &mut rotation,
+                cursor_locked,
+                os_mode,
+            );
 
-            if !rotation.is_none() {
+            // Draw the software cursor only when it is the active mode.
+            if !os_mode && !rotation.is_none() {
                 let painter = ui.ctx().layer_painter(egui::LayerId::new(
                     egui::Order::Foreground,
                     egui::Id::new("egui-rotate-software-cursor"),
@@ -389,10 +420,15 @@ impl DemoApp {
         // Remember the icon set during this pass, for next frame's cursor visual.
         self.last_cursor_icon = full_output.platform_output.cursor_icon;
 
-        // ── 4. Hand platform output to winit. When rotated, suppress the OS
-        //       cursor icon so it doesn't flicker visible on top of our drawn one.
+        // ── 4. Hand platform output to winit.
         let mut platform_output = full_output.platform_output.clone();
-        if !self.rotation.is_none() {
+        if os_mode {
+            // Remap the OS cursor icon to match the rotation — this is exactly
+            // what CursorIconExt::rotate is for. The OS cursor stays visible.
+            platform_output.cursor_icon = platform_output.cursor_icon.rotate(self.rotation);
+        } else if !self.rotation.is_none() {
+            // Software-cursor mode: suppress the OS icon so it doesn't show on
+            // top of our drawn one.
             platform_output.cursor_icon = egui::CursorIcon::None;
         }
         self.egui_winit
@@ -441,6 +477,7 @@ fn demo_ui(
     slider: &mut f32,
     rotation: &mut Rotation,
     cursor_locked: bool,
+    os_cursor_mode: bool,
 ) -> bool {
     let mut rotation_changed = false;
     ui.heading(format!("egui-rotate demo — {:?}", *rotation));
@@ -456,9 +493,35 @@ fn demo_ui(
             rotation_changed = true;
         }
         ui.label(format!(
-            "· L = cursor lock ({}) · Esc = quit",
-            if cursor_locked { "ON" } else { "OFF" }
+            "· L = cursor lock ({}) · C = OS cursor ({}) · Esc = quit",
+            if cursor_locked { "ON" } else { "OFF" },
+            if os_cursor_mode { "ON" } else { "OFF" }
         ));
+    });
+    ui.separator();
+
+    // OS-cursor test: force a single-direction resize cursor on hover. In
+    // OS-cursor mode the real OS cursor is shown, remapped via
+    // CursorIconExt::rotate — hover each box and check the arrow points the way
+    // its label says, relative to the rotated UI.
+    ui.label(if os_cursor_mode {
+        "OS-cursor mode ON — hover a box; the OS arrow is remapped to the rotation:"
+    } else {
+        "OS-cursor mode OFF (press C). When ON, hover the boxes below to test CursorIconExt::rotate:"
+    });
+    ui.horizontal_wrapped(|ui| {
+        for (name, c) in [
+            ("E", egui::CursorIcon::ResizeEast),
+            ("NE", egui::CursorIcon::ResizeNorthEast),
+            ("N", egui::CursorIcon::ResizeNorth),
+            ("NW", egui::CursorIcon::ResizeNorthWest),
+            ("W", egui::CursorIcon::ResizeWest),
+            ("SW", egui::CursorIcon::ResizeSouthWest),
+            ("S", egui::CursorIcon::ResizeSouth),
+            ("SE", egui::CursorIcon::ResizeSouthEast),
+        ] {
+            ui.button(name).on_hover_cursor(c);
+        }
     });
     ui.separator();
 
