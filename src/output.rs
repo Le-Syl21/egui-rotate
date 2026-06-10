@@ -19,6 +19,12 @@ use crate::Rotation;
 ///
 /// `logical_size` is the rotated (post-rotation) screen size — i.e. what your egui
 /// app sees as `ctx.screen_rect().size()`.
+#[deprecated(
+    since = "1.0.0",
+    note = "register a `RotationPlugin` instead — it rotates the rendered output transparently. \
+            For custom pipelines, prefer the pre-tessellation `rotate_clipped_shapes`. \
+            Will be removed in a future release."
+)]
 pub fn transform_clipped_primitives(
     primitives: &mut [ClippedPrimitive],
     rotation: Rotation,

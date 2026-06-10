@@ -38,6 +38,30 @@ impl Rotation {
         self == Self::None
     }
 
+    /// The next rotation, cycling clockwise: `None → CW90 → CW180 → CW270 → None`.
+    ///
+    /// Handy for a "rotate 90°" button or keyboard shortcut.
+    #[inline]
+    pub fn next_cw(self) -> Self {
+        match self {
+            Self::None => Self::CW90,
+            Self::CW90 => Self::CW180,
+            Self::CW180 => Self::CW270,
+            Self::CW270 => Self::None,
+        }
+    }
+
+    /// The previous rotation, cycling counter-clockwise.
+    #[inline]
+    pub fn prev_cw(self) -> Self {
+        match self {
+            Self::None => Self::CW270,
+            Self::CW90 => Self::None,
+            Self::CW180 => Self::CW90,
+            Self::CW270 => Self::CW180,
+        }
+    }
+
     /// Transform a point from physical screen space to logical UI space.
     ///
     /// `physical_size` is the physical window size (before rotation).
@@ -70,6 +94,27 @@ impl Rotation {
             Self::CW90 => Vec2::new(-vec.y, vec.x),
             Self::CW180 => Vec2::new(-vec.x, -vec.y),
             Self::CW270 => Vec2::new(vec.y, -vec.x),
+        }
+    }
+
+    /// Clockwise angle (radians) of the logical→physical mapping.
+    ///
+    /// This is the rotational part of [`Self::inverse_transform_pos`], expressed as
+    /// the clockwise angle used by epaint's per-shape `angle` fields
+    /// ([`egui::epaint::TextShape::angle`], [`RectShape::angle`](egui::epaint::RectShape),
+    /// [`EllipseShape::angle`](egui::epaint::EllipseShape)).
+    ///
+    /// Note the sign: it is the *opposite* of the screen's physical mounting
+    /// (e.g. a screen mounted 90° CW is compensated by rendering the UI at -90°),
+    /// matching the directional remapping in [`crate::CursorIconExt::rotate`].
+    #[inline]
+    pub fn inverse_angle(self) -> f32 {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        match self {
+            Self::None => 0.0,
+            Self::CW90 => -FRAC_PI_2,
+            Self::CW180 => PI,
+            Self::CW270 => FRAC_PI_2,
         }
     }
 

@@ -13,7 +13,18 @@ use crate::Rotation;
 ///
 /// `physical_size` must match the original (pre-rotation) `screen_rect.size()` —
 /// pass it explicitly because `screen_rect` is mutated in-place.
+#[deprecated(
+    since = "1.0.0",
+    note = "register a `RotationPlugin` instead — it rotates input transparently on any backend. \
+            Kept for fully custom pipelines; will be removed in a future release."
+)]
 pub fn transform_raw_input(raw: &mut RawInput, rotation: Rotation) {
+    rotate_raw_input(raw, rotation);
+}
+
+/// Implementation shared by the deprecated [`transform_raw_input`] and the
+/// `RotationPlugin` (which is not deprecated).
+pub(crate) fn rotate_raw_input(raw: &mut RawInput, rotation: Rotation) {
     if rotation.is_none() {
         return;
     }

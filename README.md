@@ -3,143 +3,128 @@
 [![Crates.io](https://img.shields.io/crates/v/egui-rotate.svg)](https://crates.io/crates/egui-rotate)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Viewport rotation (0° / 90° / 180° / 270°) for [egui](https://github.com/emilk/egui).
+Viewport rotation (0° / 90° / 180° / 270°) for [egui](https://github.com/emilk/egui),
+as a **plugin**.
 
 Built for use cases where the OS *cannot* rotate the screen: virtual pinball
 cabinets, kiosks, embedded panels, multi-monitor setups where one display is
 mounted physically rotated and the others are not.
 
-This crate **does not modify egui** — it ships pure helper functions you call
-in your integration loop, plus an optional rotated software cursor.
+This crate **does not modify egui**: it ships an [`egui::Plugin`]. Register it
+once and rotation becomes transparent — input, rendering and the OS cursor — on
+any backend (`egui_glow`, `egui_wgpu`, **eframe**, custom), with no other code.
+
+```rust
+use egui_rotate::{Rotation, RotationPlugin};
+
+ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
+```
+
+That's the whole integration. Pointer/touch input is remapped into the rotated
+space, the entire UI is rendered rotated, and directional OS cursor icons are
+remapped to match.
+
+## Highlights
+
+- **One-line integration** — `ctx.add_plugin(...)`, works on every backend incl. eframe and the web.
+- **Per-window** — rotation is per-viewport and opt-in, so a rotated cabinet window can coexist with upright child windows.
+- **Exact** — only 90° increments; integer math, no FP drift, no resampling. Text, images and rounded rects all rotate correctly.
+- **Software cursor** (opt-in) — a rotated virtual cursor for kiosks/cabinets where the OS cursor can't be rotated.
+
+## Multiple windows
+
+Rotation is keyed per viewport. `RotationPlugin::new` configures the root window;
+child windows pass through untouched unless you configure them:
+
+```rust
+use egui::ViewportId;
+use egui_rotate::Rotation;
+
+// On the registered plugin handle:
+plugin.set_viewport_rotation(child_id, Rotation::CW270);
+```
+
+## Software cursor (feature `software-cursor`, opt-in)
+
+When the viewport is rotated, the OS cursor still moves in physical space, which
+is disorienting on a cabinet. Attach a virtual cursor that tracks raw mouse
+deltas in logical space:
+
+```toml
+egui-rotate = { version = "1", features = ["software-cursor"] }
+```
+
+```rust
+use egui_rotate::{Rotation, RotationPlugin, SoftwareCursor};
+
+ctx.add_plugin(
+    RotationPlugin::new(Rotation::CW90)
+        .with_software_cursor(SoftwareCursor::new().with_lock(true)),
+);
+```
+
+In **locked** (kiosk) mode this is fully self-contained: the plugin hides the OS
+cursor and draws the virtual one. In non-locked mode it releases to the OS at the
+window edge — call `take_pending_warp()` once per frame and warp the OS cursor to
+the returned position.
+
+## Examples & demos
+
+| Demo | Stack | Run |
+|---|---|---|
+| `plugin_demo` | winit + glow (no framework) | `cargo run --example plugin_demo --features software-cursor` |
+| `rotated_demo` | winit + glow, **manual/legacy** API | `cargo run --example rotated_demo --features software-cursor` |
+| [`eframe-demo/`](eframe-demo) | eframe — child window + perf, **native & web** | `cd eframe-demo && cargo run` (web: see its [README](eframe-demo/README.md)) |
+
+The eframe demo shows two windows each rotating independently, plus an animated
+stress test, and runs both natively and in the browser.
+
+## Migrating from 0.1.x
+
+0.1.x exposed manual helpers you called in your own integration loop. As of
+**1.0**, the plugin does all of that for you. The free functions
+`transform_raw_input` and `transform_clipped_primitives` are **deprecated** (they
+still work, and `rotated_demo` shows the manual path) — replace your loop with a
+single `ctx.add_plugin(RotationPlugin::new(rotation))`. `Rotation`, `SoftwareCursor`
+and `CursorIconExt` are unchanged.
 
 ## Why a separate crate?
 
 Integrating rotation directly into egui was [proposed](https://github.com/emilk/egui/pull/8113)
-and declined as out-of-scope for the upstream maintainers. The use case is real
-(see below) but niche enough that a dedicated companion crate is the right home.
+and declined as out-of-scope upstream. The plugin system makes a clean companion
+crate the right home — no fork, no eframe hooks.
 
 ### Why app-level rotation, not OS rotation?
 
 | OS | Per-window rotation? | Notes |
 |---|---|---|
-| **Windows** | No | `SetDisplayConfig` rotates the **entire desktop** for the affected display — taskbar, login screen, every other app. |
-| **macOS** | No public API | Setting rotation requires private SPI (`IOMobileFramebuffer`). Tools like `displayplacer` break across releases. |
-| **Wayland** | No cross-compositor protocol | `wlr-output-management` is wlroots-only, `kde-output-management-v2` is KWin-only, GNOME doesn't expose rotation via Wayland. |
-| **X11** | No | `xrandr` rotates the whole output. Same problem as Windows. |
+| **Windows** | No | `SetDisplayConfig` rotates the **entire desktop** for that display. |
+| **macOS** | No public API | Requires private SPI (`IOMobileFramebuffer`); tools like `displayplacer` break across releases. |
+| **Wayland** | No cross-compositor protocol | `wlr-output-management` is wlroots-only, `kde-output-management-v2` is KWin-only, GNOME exposes nothing. |
+| **X11** | No | `xrandr` rotates the whole output. |
 | **Web (wasm)** | No | There is no "rotate the OS" inside a browser canvas. |
 
-For multi-monitor cabinet/kiosk apps, only one window/display needs to be
-rotated. OS-level rotation would break every other monitor sharing the same
-session. App-level rotation is the only correct answer.
-
-## Features
-
-- `Rotation` enum: `None` / `CW90` / `CW180` / `CW270`. Pure integer math, no FP drift.
-- `transform_raw_input` — rotate input events before egui sees them.
-- `transform_clipped_primitives` — rotate tessellated output back to physical screen space.
-- `CursorIconExt::rotate` — remap directional cursors (resize arrows, text caret) to match the rotation.
-- `SoftwareCursor` (feature `software-cursor`, **opt-in**) — virtual cursor drawn in logical space, with capture/release at window edges, scale, and lock mode for kiosk use.
-
-## Usage
-
-### Pipeline
-
-```rust
-use egui_rotate::{Rotation, transform_raw_input, transform_clipped_primitives};
-
-let rotation = Rotation::CW90;
-
-// 1. Rotate the input before egui sees it.
-transform_raw_input(&mut raw_input, rotation);
-
-// 2. Run your app normally — UI sees a rotated coordinate space.
-let full_output = ctx.run_ui(raw_input, |ui| {
-    ui.label("Hello, rotated world!");
-});
-
-// 3. Tessellate as usual.
-let mut primitives = ctx.tessellate(full_output.shapes, pixels_per_point);
-
-// 4. Rotate primitives back to physical screen space before painting.
-let logical_size = ctx.screen_rect().size();
-transform_clipped_primitives(&mut primitives, rotation, logical_size);
-
-// 5. Hand `primitives` to your painter (egui_glow, egui_wgpu, custom).
-```
-
-### With `SoftwareCursor` (opt-in)
-
-When the viewport is rotated, the OS cursor still moves in physical space, which
-is disorienting. The crate provides a virtual cursor that follows raw mouse
-deltas in logical space. **Enable the `software-cursor` feature** in your
-`Cargo.toml`:
-
-```toml
-egui-rotate = { version = "0.1", features = ["software-cursor"] }
-```
-
-```rust
-use egui_rotate::{Rotation, SoftwareCursor};
-
-// Persist across frames.
-let mut cursor = SoftwareCursor::new().with_scale(2.0);
-
-// In your input handling:
-let cursor_out = cursor.process_input(&mut raw_input, rotation, physical_size);
-
-// Hide the OS cursor while captured (your integration's job — depends on SDL3 / winit).
-if cursor.is_captured() {
-    integration.hide_os_cursor();
-} else if let Some(release_to) = cursor_out.release_os_cursor_to {
-    integration.show_os_cursor();
-    integration.warp_os_cursor_to(release_to);
-}
-
-// Run UI…
-
-// Draw the cursor on top.
-let painter = ctx.layer_painter(egui::LayerId::new(
-    egui::Order::Foreground,
-    egui::Id::new("software-cursor"),
-));
-let icon_from_egui = full_output.platform_output.cursor_icon;
-use egui_rotate::CursorIconExt;
-cursor.draw(&painter, icon_from_egui.rotate(rotation));
-```
-
-For kiosk / fullscreen scenarios where the cursor must never leave the window:
-
-```rust
-cursor.set_lock(true);
-```
-
-## Run the demo
-
-A complete winit + glow + egui_glow integration is shipped as an example:
-
-```bash
-cargo run --example rotated_demo
-```
-
-Press `R` to cycle through `None / CW90 / CW180 / CW270`. Press `Esc` to quit.
-The demo shows a regular egui UI (heading, slider, text edit, scroll area)
-rendered in the rotation of your choice — input is remapped transparently.
+For cabinet/kiosk apps, only one window needs to be rotated — OS-level rotation
+would break every other monitor in the session. App-level rotation is the only
+correct answer.
 
 ## What this crate does *not* do
 
-- It does **not** integrate with `eframe` automatically. eframe owns the
-  tessellate→paint pipeline and there's no hook between them today. Use this
-  crate from a custom integration (winit + wgpu/glow, SDL3, etc.).
-- It does **not** rotate paint callbacks (`Primitive::Callback`). Custom
-  callbacks are responsible for their own coordinate space.
+- It does **not** rotate paint callbacks (`Primitive::Callback`) — custom callbacks
+  own their coordinate space.
 - It does **not** rotate at arbitrary angles — only 0°/90°/180°/270°.
-  Arbitrary angles would require a different design (and lossy resampling).
+- Per-window rotation works within one app; it does not try to manage different
+  rotations across separate OS windows on different physical monitors beyond the
+  per-viewport config above. The common cabinet case (one rotated fullscreen
+  window) is fully covered.
 
 ## Compatibility
 
-Tested with `egui = 0.34` and `0.35`. The dependency is range-versioned
-(`>=0.34, <0.36`) so the crate floats with your egui.
+The plugin API requires the egui plugin system (**egui ≥ 0.33**). The dependency
+is range-versioned (`>=0.34, <0.36`) so the crate floats with your egui.
 
 ## License
 
 Dual-licensed under MIT or Apache-2.0, matching egui itself.
+
+[`egui::Plugin`]: https://docs.rs/egui/latest/egui/trait.Plugin.html

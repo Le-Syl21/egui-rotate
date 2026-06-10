@@ -1,10 +1,10 @@
 [package]
 name = "egui-rotate"
-version = "0.1.6"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.92"
 authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]
-description = "Viewport rotation (0/90/180/270°) for egui — transparent input/output remapping and a rotated software cursor."
+description = "Viewport rotation (0/90/180/270°) for egui as a plugin — transparent per-window input/output rotation and a rotated software cursor."
 keywords = ["egui", "rotation", "viewport", "kiosk", "pinball"]
 categories = ["gui", "graphics"]
 license = "MIT OR Apache-2.0"
@@ -29,8 +29,13 @@ glutin = "0.32"
 glutin-winit = "0.5"
 log = "0.4"
 env_logger = "0.11"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [[example]]
 name = "rotated_demo"
+required-features = ["software-cursor"]
+
+[[example]]
+name = "plugin_demo"
 required-features = ["software-cursor"]
 

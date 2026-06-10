@@ -1,0 +1,36 @@
+[package]
+name = "egui-rotate-eframe-demo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "eframe demo for egui-rotate: per-window rotation (incl. a child window) + a perf stress test. Runs native and on the web."
+
+[lib]
+# `cdylib` for the web (wasm), `rlib` so the native binary can link the shared app.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+egui-rotate = { path = ".." }
+# 0.34.3 is yanked-in-practice (requires an unpublished egui-wgpu 0.34.3).
+eframe = { version = "=0.34.2", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "x11",
+    "wayland",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+] }
+console_error_panic_hook = "0.1"

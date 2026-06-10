@@ -1,3 +1,4 @@
+#![allow(deprecated)] // exercises the deprecated manual helpers on purpose
 use egui::{
     epaint::{ClippedPrimitive, Mesh, Primitive, Vertex},
     Color32, Event, PointerButton, Pos2, Rect, Vec2,

@@ -1,22 +1,21 @@
-//! Rotated demo: an 800×600 window rendered as if it were 600×800 portrait, rotated 90° clockwise.
+//! Plugin demo: viewport rotation driven entirely by [`RotationPlugin`].
 //!
-//! Demonstrates the lite-crate integration pattern, including the locked
-//! [`SoftwareCursor`] (kiosk-mode virtual cursor that stays inside the window).
+//! Compared to `rotated_demo` (which wires the helper functions by hand), the
+//! integration here is minimal: register the plugin once, then run egui normally.
+//! The plugin rotates input, rotates the rendered shapes, draws the software
+//! cursor and hides the OS cursor — the redraw loop never calls a transform.
 //!
-//! Press `R` to cycle rotation, `L` to toggle the cursor lock, `Esc` to quit.
+//! A small toolbar offers a **↻ rotate** button (90° per click) and a **Lock
+//! cursor** checkbox. Keyboard shortcuts: `R` = rotate, `L` = lock/unlock,
+//! `Esc` = quit.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// This example demonstrates the *manual* integration without the plugin, using the
-// deprecated low-level helpers on purpose — kept as a reference for custom pipelines.
-#![allow(deprecated)]
 #![allow(clippy::unwrap_used, unsafe_code, clippy::undocumented_unsafe_blocks)]
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use egui_rotate::{
-    transform_clipped_primitives, transform_raw_input, CursorIconExt, Rotation, SoftwareCursor,
-};
+use egui_rotate::{Rotation, RotationPlugin, SoftwareCursor};
 use egui_winit::winit;
 use winit::raw_window_handle::HasWindowHandle as _;
 
@@ -47,7 +46,7 @@ impl GlutinWindowContext {
                 width: PHYSICAL_WIDTH,
                 height: PHYSICAL_HEIGHT,
             })
-            .with_title("egui-rotate — rotated demo  (press R to cycle, Esc to quit)")
+            .with_title("egui-rotate — plugin demo  (R rotate · L lock · Esc quit)")
             .with_visible(false);
 
         let config_template_builder = glutin::config::ConfigTemplateBuilder::new()
@@ -150,16 +149,28 @@ struct DemoApp {
     egui_ctx: egui::Context,
     egui_winit: Option<egui_winit::State>,
     painter: Option<egui_glow::Painter>,
+
+    // UI-facing state, mirrored into the plugin each frame.
     rotation: Rotation,
-    cursor: SoftwareCursor,
-    /// When `true`, demonstrate the *OS* cursor path: keep the OS cursor visible
-    /// and remap its icon with `CursorIconExt::rotate`, instead of drawing the
-    /// software cursor. Toggled with `C`.
-    os_cursor_mode: bool,
-    last_cursor_icon: egui::CursorIcon,
+    locked: bool,
+
+    // Demo widgets.
     counter: u32,
     text: String,
     slider: f32,
+    ferris: Option<egui::TextureHandle>,
+}
+
+/// Decode the embedded Ferris PNG into an egui texture (loaded once).
+fn load_ferris(ctx: &egui::Context) -> egui::TextureHandle {
+    let bytes = include_bytes!("../assets/ferris.png");
+    let image = image::load_from_memory(bytes)
+        .expect("decode ferris.png")
+        .to_rgba8();
+    let (w, h) = image.dimensions();
+    let color_image =
+        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw());
+    ctx.load_texture("ferris", color_image, egui::TextureOptions::LINEAR)
 }
 
 impl DemoApp {
@@ -171,35 +182,34 @@ impl DemoApp {
             egui_winit: None,
             painter: None,
             rotation: Rotation::CW90,
-            cursor: SoftwareCursor::new().with_lock(false).with_scale(1.5),
-            os_cursor_mode: false,
-            last_cursor_icon: egui::CursorIcon::Default,
+            locked: true,
             counter: 0,
             text: String::from("type here"),
             slider: 0.5,
+            ferris: None,
         }
     }
 
-    /// Apply OS-level cursor visibility / grab to match the current state.
-    ///
-    /// - When rotation is on AND the software cursor is captured: hide OS cursor.
-    ///   Confine only in lock mode so it can release at edges otherwise.
-    /// - Otherwise: show OS cursor, no grab.
-    fn refresh_cursor_grab(&self) {
+    /// Is the software cursor currently captured?
+    fn cursor_captured(&self) -> bool {
+        let handle = self.egui_ctx.plugin::<RotationPlugin>();
+        let plugin = handle.lock();
+        plugin.software_cursor().is_some_and(|c| c.is_captured())
+    }
+
+    /// Confine the OS cursor while locked + captured, so it can't leave the
+    /// window (visibility is handled by the plugin via `CursorIcon::None`).
+    fn refresh_grab(&self) {
         let Some(gl_window) = &self.gl_window else {
             return;
         };
-        let window = gl_window.window();
-        // In OS-cursor mode the OS cursor must stay visible — we remap its icon
-        // rather than draw our own.
-        let active = !self.os_cursor_mode && !self.rotation.is_none() && self.cursor.is_captured();
-        window.set_cursor_visible(!active);
-        let mode = if active && self.cursor.is_locked() {
+        let confine = self.locked && !self.rotation.is_none() && self.cursor_captured();
+        let mode = if confine {
             winit::window::CursorGrabMode::Confined
         } else {
             winit::window::CursorGrabMode::None
         };
-        let _ = window.set_cursor_grab(mode);
+        let _ = gl_window.window().set_cursor_grab(mode);
     }
 }
 
@@ -227,11 +237,19 @@ impl winit::application::ApplicationHandler for DemoApp {
             Some(painter.max_texture_side()),
         );
 
+        // The whole integration: register the plugin once.
+        self.egui_ctx
+            .add_plugin(RotationPlugin::new(self.rotation).with_software_cursor(
+                SoftwareCursor::new().with_lock(self.locked).with_scale(1.5),
+            ));
+
+        self.ferris = Some(load_ferris(&self.egui_ctx));
+
         self.gl_window = Some(gl_window);
         self.gl = Some(gl);
         self.egui_winit = Some(egui_winit);
         self.painter = Some(painter);
-        self.refresh_cursor_grab();
+        self.refresh_grab();
     }
 
     fn device_event(
@@ -240,8 +258,7 @@ impl winit::application::ApplicationHandler for DemoApp {
         _device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        // Forward raw mouse deltas to egui as `Event::MouseMoved`. The
-        // SoftwareCursor consumes these in `process_input`.
+        // Raw mouse deltas drive the software cursor (`Event::MouseMoved`).
         if let winit::event::DeviceEvent::MouseMotion { delta } = event {
             if let Some(state) = self.egui_winit.as_mut() {
                 if state.on_mouse_motion(delta) {
@@ -264,48 +281,19 @@ impl winit::application::ApplicationHandler for DemoApp {
             return;
         }
 
+        // Esc quits (R / L shortcuts are handled inside the egui pass).
         if let WindowEvent::KeyboardInput {
             event:
                 winit::event::KeyEvent {
-                    logical_key,
+                    logical_key: winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape),
                     state: winit::event::ElementState::Pressed,
                     ..
                 },
             ..
         } = &event
         {
-            use winit::keyboard::{Key, NamedKey};
-            match logical_key {
-                Key::Named(NamedKey::Escape) => {
-                    event_loop.exit();
-                    return;
-                }
-                Key::Character(c) if c.eq_ignore_ascii_case("r") => {
-                    self.rotation = match self.rotation {
-                        Rotation::None => Rotation::CW90,
-                        Rotation::CW90 => Rotation::CW180,
-                        Rotation::CW180 => Rotation::CW270,
-                        Rotation::CW270 => Rotation::None,
-                    };
-                    log::info!("rotation → {:?}", self.rotation);
-                    self.refresh_cursor_grab();
-                    self.gl_window.as_ref().unwrap().window().request_redraw();
-                }
-                Key::Character(c) if c.eq_ignore_ascii_case("l") => {
-                    let new_lock = !self.cursor.is_locked();
-                    self.cursor.set_lock(new_lock);
-                    log::info!("cursor lock → {}", new_lock);
-                    self.refresh_cursor_grab();
-                    self.gl_window.as_ref().unwrap().window().request_redraw();
-                }
-                Key::Character(c) if c.eq_ignore_ascii_case("c") => {
-                    self.os_cursor_mode = !self.os_cursor_mode;
-                    log::info!("OS-cursor mode → {}", self.os_cursor_mode);
-                    self.refresh_cursor_grab();
-                    self.gl_window.as_ref().unwrap().window().request_redraw();
-                }
-                _ => {}
-            }
+            event_loop.exit();
+            return;
         }
 
         if let WindowEvent::Resized(physical_size) = &event {
@@ -341,119 +329,80 @@ impl DemoApp {
         let physical_size =
             egui::Vec2::new(physical_dimensions[0] as f32, physical_dimensions[1] as f32);
 
-        // ── 1. Gather raw input from winit
-        let mut raw_input = self.egui_winit.as_mut().unwrap().take_egui_input(window);
+        // ── Mirror UI state into the plugin (before the pass: `input_hook` reads it).
+        {
+            let handle = self.egui_ctx.plugin::<RotationPlugin>();
+            let mut plugin = handle.lock();
+            plugin.set_rotation(self.rotation);
+            if let Some(cursor) = plugin.software_cursor_mut() {
+                cursor.set_lock(self.locked);
+            }
+        }
 
-        // Make sure egui sees the *physical* screen rect so transform_raw_input
-        // can compute logical-space coords from it.
+        let was_captured = self.cursor_captured();
+
+        // ── Gather input. egui must see the *physical* screen rect; the plugin
+        //    swaps it to logical in `input_hook`.
+        let mut raw_input = self.egui_winit.as_mut().unwrap().take_egui_input(window);
         if raw_input.screen_rect.is_none() {
             raw_input.screen_rect =
                 Some(egui::Rect::from_min_size(egui::Pos2::ZERO, physical_size));
         }
 
-        // ── 2. Rotate input before egui sees it.
-        let os_mode = self.os_cursor_mode;
-        if os_mode {
-            // OS-cursor mode: rotate input only. The OS keeps drawing (and moving)
-            // its own cursor; we remap just the *icon* via CursorIconExt::rotate
-            // when handing platform output back (step 4).
-            transform_raw_input(&mut raw_input, self.rotation);
-        } else {
-            // Software-cursor mode: process_input does the rotation plus the
-            // virtual-cursor capture/release.
-            let was_captured = self.cursor.is_captured();
-            let cursor_out =
-                self.cursor
-                    .process_input(&mut raw_input, self.rotation, physical_size);
-
-            // If the cursor was just released to the OS, warp it 3px outside the
-            // window so the user sees it exit cleanly.
-            if let Some(release_pos) = cursor_out.release_os_cursor_to {
-                let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(
-                    release_pos.x as f64,
-                    release_pos.y as f64,
-                ));
-            }
-            if was_captured != self.cursor.is_captured() {
-                self.refresh_cursor_grab();
-            }
-        }
-
-        // ── 3. Run UI in logical (rotated) space, drawing the software cursor inside the pass
+        // ── Run the UI. The plugin does everything else.
+        let mut rotation = self.rotation;
+        let mut locked = self.locked;
         let counter = &mut self.counter;
         let text = &mut self.text;
         let slider = &mut self.slider;
-        let mut rotation = self.rotation;
-        let cursor = &self.cursor;
-        let cursor_locked = cursor.is_locked();
-        // Use the previous frame's cursor icon (1 frame of latency — fine for visuals).
-        // Pass it un-rotated: the inverse rotation at paint time produces the
-        // correct visual orientation (a logical-vertical I-beam becomes a
-        // physical-horizontal one, perpendicular to the rotated text).
-        let cursor_icon = self.last_cursor_icon;
-        let mut rotation_changed = false;
+        let ferris = self.ferris.as_ref();
         let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
-            rotation_changed = demo_ui(
+            demo_ui(
                 ui,
+                &mut rotation,
+                &mut locked,
                 counter,
                 text,
                 slider,
-                &mut rotation,
-                cursor_locked,
-                os_mode,
+                ferris,
             );
-
-            // Draw the software cursor only when it is the active mode.
-            if !os_mode && !rotation.is_none() {
-                let painter = ui.ctx().layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("egui-rotate-software-cursor"),
-                ));
-                cursor.draw(&painter, cursor_icon);
-            }
         });
+        self.rotation = rotation;
+        self.locked = locked;
 
-        if rotation_changed {
-            self.rotation = rotation;
-            log::info!("rotation → {:?}", self.rotation);
-            self.refresh_cursor_grab();
-            self.gl_window.as_ref().unwrap().window().request_redraw();
+        // ── If the cursor was released to the OS (non-locked edge), warp it there.
+        let pending_warp = {
+            let handle = self.egui_ctx.plugin::<RotationPlugin>();
+            let mut plugin = handle.lock();
+            plugin.take_pending_warp()
+        };
+        if let Some(warp) = pending_warp {
+            let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(
+                warp.x as f64,
+                warp.y as f64,
+            ));
         }
-
-        // Remember the icon set during this pass, for next frame's cursor visual.
-        self.last_cursor_icon = full_output.platform_output.cursor_icon;
-
-        // ── 4. Hand platform output to winit.
-        let mut platform_output = full_output.platform_output.clone();
-        if os_mode {
-            // Remap the OS cursor icon to match the rotation — this is exactly
-            // what CursorIconExt::rotate is for. The OS cursor stays visible.
-            platform_output.cursor_icon = platform_output.cursor_icon.rotate(self.rotation);
-        } else if !self.rotation.is_none() {
-            // Software-cursor mode: suppress the OS icon so it doesn't show on
-            // top of our drawn one.
-            platform_output.cursor_icon = egui::CursorIcon::None;
+        if was_captured != self.cursor_captured() {
+            self.refresh_grab();
         }
+        self.refresh_grab();
+
+        // ── Platform output: the plugin already set cursor_icon (None while the
+        //    software cursor is captured, remapped otherwise).
         self.egui_winit
             .as_mut()
             .unwrap()
-            .handle_platform_output(window, platform_output);
+            .handle_platform_output(window, full_output.platform_output);
 
-        // ── 5. Tessellate (already includes the cursor shape from inside run_ui)
-        let logical_size = self.egui_ctx.content_rect().size();
-        let mut clipped_primitives = self
+        // ── Shapes are already rotated by the plugin — just tessellate and paint.
+        let clipped_primitives = self
             .egui_ctx
             .tessellate(full_output.shapes, full_output.pixels_per_point);
 
-        // ── 6. Apply output rotation: logical → physical
-        transform_clipped_primitives(&mut clipped_primitives, self.rotation, logical_size);
-
-        // ── 7. Paint
         let painter = self.painter.as_mut().unwrap();
         for (id, image_delta) in full_output.textures_delta.set {
             painter.set_texture(id, &image_delta);
         }
-
         unsafe {
             use glow::HasContext as _;
             let gl = self.gl.as_ref().unwrap();
@@ -475,63 +424,55 @@ impl DemoApp {
 
 fn demo_ui(
     ui: &mut egui::Ui,
+    rotation: &mut Rotation,
+    locked: &mut bool,
     counter: &mut u32,
     text: &mut String,
     slider: &mut f32,
-    rotation: &mut Rotation,
-    cursor_locked: bool,
-    os_cursor_mode: bool,
-) -> bool {
-    let mut rotation_changed = false;
-    ui.heading(format!("egui-rotate demo — {:?}", *rotation));
-    ui.horizontal(|ui| {
-        ui.label("R = cycle rotation");
-        if ui.button("Rotate ↻").clicked() {
-            *rotation = match *rotation {
-                Rotation::None => Rotation::CW90,
-                Rotation::CW90 => Rotation::CW180,
-                Rotation::CW180 => Rotation::CW270,
-                Rotation::CW270 => Rotation::None,
-            };
-            rotation_changed = true;
-        }
-        ui.label(format!(
-            "· L = cursor lock ({}) · C = OS cursor ({}) · Esc = quit",
-            if cursor_locked { "ON" } else { "OFF" },
-            if os_cursor_mode { "ON" } else { "OFF" }
-        ));
-    });
-    ui.separator();
+    ferris: Option<&egui::TextureHandle>,
+) {
+    // ── Keyboard shortcuts (consumed from egui input, so they work in any backend).
+    let (rotate_key, lock_key) =
+        ui.input(|i| (i.key_pressed(egui::Key::R), i.key_pressed(egui::Key::L)));
+    if rotate_key {
+        *rotation = rotation.next_cw();
+    }
+    // The software cursor only exists while rotated; at 0° it's the plain OS
+    // cursor, so lock is meaningless there.
+    let lock_available = *rotation != Rotation::None;
+    if lock_key && lock_available {
+        *locked = !*locked;
+    }
+    if !lock_available {
+        *locked = false;
+    }
 
-    // OS-cursor test: force a single-direction resize cursor on hover. In
-    // OS-cursor mode the real OS cursor is shown, remapped via
-    // CursorIconExt::rotate — hover each box and check the arrow points the way
-    // its label says, relative to the rotated UI.
-    ui.label(if os_cursor_mode {
-        "OS-cursor mode ON — hover a box; the OS arrow is remapped to the rotation:"
-    } else {
-        "OS-cursor mode OFF (press C). When ON, hover the boxes below to test CursorIconExt::rotate:"
+    // ── Toolbar.
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let rotate = ui
+                .add(egui::Button::new(egui::RichText::new("↻").size(22.0)))
+                .on_hover_text("Rotate 90° clockwise  (R)");
+            if rotate.clicked() {
+                *rotation = rotation.next_cw();
+            }
+            ui.separator();
+            // Greyed out at 0° (OS cursor — nothing to lock).
+            ui.add_enabled(
+                lock_available,
+                egui::Checkbox::new(locked, "🔒 Lock cursor"),
+            )
+            .on_hover_text("Confine the software cursor inside the window  (L)");
+            ui.separator();
+            ui.label(format!("Rotation: {rotation:?}"));
+        });
     });
-    ui.horizontal_wrapped(|ui| {
-        for (name, c) in [
-            ("E", egui::CursorIcon::ResizeEast),
-            ("NE", egui::CursorIcon::ResizeNorthEast),
-            ("N", egui::CursorIcon::ResizeNorth),
-            ("NW", egui::CursorIcon::ResizeNorthWest),
-            ("W", egui::CursorIcon::ResizeWest),
-            ("SW", egui::CursorIcon::ResizeSouthWest),
-            ("S", egui::CursorIcon::ResizeSouth),
-            ("SE", egui::CursorIcon::ResizeSouthEast),
-        ] {
-            ui.button(name).on_hover_cursor(c);
-        }
-    });
-    ui.separator();
-
-    ui.label("Click the buttons, drag the slider, type in the text field.");
-    ui.label("Mouse coordinates are remapped through the rotation transparently.");
 
     ui.add_space(8.0);
+    ui.heading("egui-rotate — plugin demo");
+    ui.label("Input, rendering and the software cursor are all handled by RotationPlugin.");
+    ui.label("Shortcuts:  R = rotate 90°   ·   L = lock/unlock   ·   Esc = quit");
+    ui.separator();
 
     ui.horizontal(|ui| {
         if ui.button("− 1").clicked() {
@@ -541,37 +482,28 @@ fn demo_ui(
         if ui.button("+ 1").clicked() {
             *counter += 1;
         }
+        ui.separator();
+        ui.add(egui::Slider::new(slider, 0.0..=1.0).text("slider"));
     });
-
-    ui.add(egui::Slider::new(slider, 0.0..=1.0).text("slider"));
     ui.text_edit_singleline(text);
 
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label("crate:");
-        ui.hyperlink_to(
-            "egui-rotate on crates.io",
-            "https://crates.io/crates/egui-rotate",
-        );
-    });
-
-    ui.separator();
-    ui.label("Logical screen rect:");
-    ui.monospace(format!("{:?}", ui.ctx().content_rect()));
-
-    ui.add_space(12.0);
-    egui::ScrollArea::vertical()
-        .max_height(160.0)
-        .show(ui, |ui| {
-            for i in 0..40 {
-                ui.horizontal(|ui| {
-                    ui.label(format!("row {i:02}"));
-                    let _ = ui.button("…");
-                });
-            }
+    // ── Ferris rides along with the rotation — the clearest proof the whole
+    //    viewport (text, widgets, image) is remapped uniformly.
+    if let Some(tex) = ferris {
+        ui.add_space(12.0);
+        ui.vertical_centered(|ui| {
+            let aspect = tex.size_vec2().x / tex.size_vec2().y;
+            let w = (ui.available_width() - 16.0).clamp(80.0, 360.0);
+            ui.image(egui::load::SizedTexture::new(
+                tex.id(),
+                egui::vec2(w, w / aspect),
+            ));
         });
+    }
 
-    rotation_changed
+    ui.add_space(8.0);
+    let size = ui.ctx().content_rect().size();
+    ui.monospace(format!("logical size: {:.0} × {:.0}", size.x, size.y));
 }
 
 fn main() {

@@ -1,3 +1,4 @@
+#![allow(deprecated)] // exercises the deprecated manual helpers on purpose
 //! End-to-end pipeline test: drives a real egui::Context through a frame with
 //! rotation applied. Verifies the input/tessellate/output pipeline composes
 //! without panic and produces sane primitives.

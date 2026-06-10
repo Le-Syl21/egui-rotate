@@ -1,0 +1,7 @@
+[build]
+# Output everything under `dist/`.
+dist = "dist"
+
+[serve]
+address = "127.0.0.1"
+port = 8080

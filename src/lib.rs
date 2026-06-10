@@ -6,50 +6,58 @@
 //! panels — any setup where the physical screen is mounted rotated and the OS
 //! cannot (or should not) rotate the whole desktop.
 //!
-//! This crate **does not modify egui** — it ships pure helper functions you
-//! call in your integration loop, plus an optional software cursor.
+//! This crate **does not modify egui**: it ships [`RotationPlugin`], a
+//! self-contained [`egui::Plugin`]. Register it once and rotation becomes
+//! transparent for input, rendering and the OS cursor — on any backend
+//! (`egui_glow`, `egui_wgpu`, eframe, custom), with no other integration code.
 //!
 //! ## Quick start
 //!
 //! ```no_run
-//! use egui_rotate::{Rotation, transform_raw_input, transform_clipped_primitives};
+//! use egui_rotate::{Rotation, RotationPlugin};
 //!
 //! # let ctx = egui::Context::default();
-//! # let mut raw_input = egui::RawInput::default();
-//! # let pixels_per_point = 1.0;
-//! let rotation = Rotation::CW90;
-//!
-//! // 1. Rotate input before egui sees it.
-//! transform_raw_input(&mut raw_input, rotation);
-//!
-//! // 2. Run your app normally — it sees a rotated coordinate space.
-//! let full_output = ctx.run_ui(raw_input, |ui| {
-//!     ui.label("Hello, rotated world!");
-//! });
-//!
-//! // 3. Tessellate as usual.
-//! let mut primitives = ctx.tessellate(full_output.shapes, pixels_per_point);
-//!
-//! // 4. Rotate primitives back to physical screen space before painting.
-//! let logical_size = ctx.screen_rect().size();
-//! transform_clipped_primitives(&mut primitives, rotation, logical_size);
-//!
-//! // 5. Hand `primitives` to your painter (egui_glow, egui_wgpu, custom).
+//! ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 //! ```
+//!
+//! That's it: pointer/touch input is remapped into the rotated space, the whole
+//! UI is rendered rotated, and directional OS cursor icons are remapped.
+//!
+//! ## Multiple windows
+//!
+//! Rotation is **per-viewport and opt-in**. [`RotationPlugin::new`] configures the
+//! root window; child windows pass through untouched unless you configure them
+//! with [`RotationPlugin::set_viewport_rotation`]. So a rotated cabinet window can
+//! coexist with upright settings dialogs.
 //!
 //! ## Software cursor (feature `software-cursor`, opt-in)
 //!
 //! Enable with `egui-rotate = { version = "…", features = ["software-cursor"] }`.
-//! See [`SoftwareCursor`] for the rotated-cursor flow used by pinball cabinets
-//! and kiosks where the OS cursor cannot be rotated.
+//! See [`SoftwareCursor`] for the rotated virtual cursor used by pinball cabinets
+//! and kiosks where the OS cursor cannot be rotated; attach it with
+//! [`RotationPlugin::with_software_cursor`].
+//!
+//! ## Custom integration (without the plugin)
+//!
+//! If you cannot use the plugin, the building blocks are public: [`Rotation`]'s
+//! transform methods for input, and [`rotate_clipped_shapes`] / [`rotate_shape`]
+//! to rotate pre-tessellation shapes. The older manual helpers
+//! [`transform_raw_input`] and [`transform_clipped_primitives`] are **deprecated
+//! since 1.0** — prefer the plugin.
 
 mod input;
 mod output;
+mod plugin;
 mod rotation;
+mod shape_rotate;
 
+#[allow(deprecated)]
 pub use input::transform_raw_input;
+#[allow(deprecated)]
 pub use output::transform_clipped_primitives;
+pub use plugin::RotationPlugin;
 pub use rotation::Rotation;
+pub use shape_rotate::{rotate_clipped_shapes, rotate_shape};
 
 mod cursor_icon;
 pub use cursor_icon::CursorIconExt;

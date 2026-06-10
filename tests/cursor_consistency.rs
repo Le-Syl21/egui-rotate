@@ -1,3 +1,4 @@
+#![allow(deprecated)] // exercises the deprecated manual helpers on purpose
 //! Regression test pinning `CursorIconExt::rotate` to the SAME orientation the
 //! (visually validated) software cursor gets, derived independently here.
 //!

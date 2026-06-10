@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-10
+
+The crate becomes **plugin-first**. Where 0.1.x asked you to call helper
+functions in your own integration loop, the whole thing is now a single
+`egui::Plugin` you register once — it works on any backend, including eframe
+and the web, with no other integration code.
+
+```rust
+ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
+```
+
+### Added
+- **`RotationPlugin`** — a self-contained `egui::Plugin` that rotates input,
+  rendering and the OS cursor transparently. One `ctx.add_plugin(...)` is the
+  entire integration; works with `egui_glow`, `egui_wgpu`, eframe and custom
+  backends.
+- **Per-viewport rotation.** Rotation is opt-in per window: `RotationPlugin::new`
+  configures the root viewport, `set_viewport_rotation` configures children, and
+  unconfigured viewports pass through untouched. Nested (immediate) child
+  viewports are paired correctly via a begin/end stack.
+- **Software cursor in the plugin.** `with_software_cursor` / `with_software_cursor_on`
+  attach a `SoftwareCursor`; in locked (kiosk) mode the plugin hides the OS cursor
+  and draws the virtual one with zero integration code. `take_pending_warp` exposes
+  the edge-release warp for non-locked mode.
+- `rotate_clipped_shapes` / `rotate_shape` — public pre-tessellation shape
+  rotation (the plugin's output stage), for custom pipelines.
+- `Rotation::next_cw` / `prev_cw` (cycle a rotation) and `Rotation::inverse_angle`.
+- New demos: `plugin_demo` (winit + glow, plugin-based) and `eframe-demo/`
+  (a child window with its own rotation + an animated perf stress test, running
+  both natively and on the web).
+
+### Fixed
+- **Textured rects (images) now rotate with the viewport.** egui's tessellator
+  keeps a brushed `RectShape`'s texture screen-aligned under `RectShape::angle`,
+  so an image rendered upright while the rest rotated. Textured rects are now
+  converted to a rotated textured quad mesh.
+
+### Deprecated
+- `transform_raw_input` and `transform_clipped_primitives` — register a
+  `RotationPlugin` instead. They still work (and `rotated_demo` shows the manual
+  path); they will be removed in a future release.
+
 ## [0.1.5] - 2026-06-01
 
 ### Changed
