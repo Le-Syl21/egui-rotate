@@ -35,7 +35,24 @@
 //! Enable with `egui-rotate = { version = "…", features = ["software-cursor"] }`.
 //! See [`SoftwareCursor`] for the rotated virtual cursor used by pinball cabinets
 //! and kiosks where the OS cursor cannot be rotated; attach it with
-//! [`RotationPlugin::with_software_cursor`].
+//! [`RotationPlugin::with_software_cursor`]. Out of the box it soft-locks at the
+//! window edge ([`SoftwareCursor::with_edge_resistance`]) and holds an OS pointer
+//! grab while captured ([`SoftwareCursor::with_os_grab`]).
+//!
+//! For keyboard/gamepad-navigated front-ends, the cursor can **auto-hide**
+//! ([`SoftwareCursor::set_dormant`]): it fades out and egui's hover is cleared so
+//! the keyboard/gamepad selection wins; mouse use fades it back in. Keyboard
+//! triggering is opt-in ([`SoftwareCursor::with_dormant_on_keys`]); for gamepads
+//! call `set_dormant(true)` yourself when handling stick input — egui never sees
+//! those events.
+//!
+//! ## Limitations
+//!
+//! - [`Shape::Callback`](egui::Shape::Callback) primitives are not rotated —
+//!   backend paint callbacks own their coordinate space (see
+//!   [`rotate_clipped_shapes`]).
+//! - AccessKit accessibility node geometry is reported in logical (un-rotated)
+//!   space; assistive technologies see pre-rotation coordinates.
 //!
 //! ## Custom integration (without the plugin)
 //!
@@ -65,4 +82,7 @@ pub use cursor_icon::CursorIconExt;
 #[cfg(feature = "software-cursor")]
 mod cursor;
 #[cfg(feature = "software-cursor")]
-pub use cursor::{SoftwareCursor, SoftwareCursorOutput};
+pub use cursor::{
+    SoftwareCursor, SoftwareCursorOutput, DEFAULT_EDGE_RESISTANCE, DEFAULT_FADE,
+    DEFAULT_WAKE_THRESHOLD, EDGE_PRESSURE_RESET_SECS,
+};

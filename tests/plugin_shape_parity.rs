@@ -218,6 +218,61 @@ fn textured_rect_rotates_with_viewport() {
     }
 }
 
+/// A textured rect with a visible border keeps its border after rotation: the
+/// fill becomes a mesh, and the stroke is re-emitted as a closed path over the
+/// rotated corners.
+#[test]
+fn textured_rect_keeps_stroke() {
+    use egui::epaint::{Brush, RectShape, StrokeKind};
+    use std::sync::Arc;
+
+    let rotation = Rotation::CW90;
+    let logical_size = rotation
+        .transform_screen_rect(Rect::from_min_size(Pos2::ZERO, PHYSICAL))
+        .size();
+
+    let rect = Rect::from_min_max(Pos2::new(100.0, 200.0), Pos2::new(300.0, 260.0));
+    let mut rs = RectShape::new(
+        rect,
+        egui::CornerRadius::ZERO,
+        Color32::WHITE,
+        Stroke::new(2.0, Color32::BLACK),
+        StrokeKind::Middle,
+    );
+    rs.brush = Some(Arc::new(Brush {
+        fill_texture_id: egui::TextureId::Managed(7),
+        uv: Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+    }));
+
+    let mut shape = egui::Shape::Rect(rs);
+    egui_rotate::rotate_shape(&mut shape, rotation, logical_size);
+
+    let egui::Shape::Vec(shapes) = shape else {
+        panic!("a stroked textured rect should become mesh + outline");
+    };
+    assert!(matches!(shapes[0], egui::Shape::Mesh(_)));
+    let egui::Shape::Path(path) = &shapes[1] else {
+        panic!("second shape should be the outline path");
+    };
+    assert!(path.closed);
+    // Middle stroke: the outline follows the rect edge exactly, rotated.
+    for (corner, p) in [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+    ]
+    .iter()
+    .zip(&path.points)
+    {
+        let expected = rotation.inverse_transform_pos(*corner, logical_size);
+        assert!(
+            (*p - expected).length() < 0.01,
+            "outline corner {corner:?} → {p:?}, expected {expected:?}"
+        );
+    }
+}
+
 #[test]
 fn plugin_none_is_passthrough() {
     let ctx = egui::Context::default();

@@ -1,6 +1,37 @@
-use egui::{Event, RawInput};
+use egui::{epaint::MarginF32, Event, RawInput, SafeAreaInsets};
 
 use crate::Rotation;
+
+/// Map safe-area insets (physical sides — e.g. a phone notch) onto the logical
+/// sides they cover after rotation, mirroring [`Rotation::transform_pos`]:
+/// under CW90 the physical top strip lands on the logical *right* edge, etc.
+pub(crate) fn rotate_safe_area_insets(
+    insets: SafeAreaInsets,
+    rotation: Rotation,
+) -> SafeAreaInsets {
+    let m = insets.0;
+    SafeAreaInsets(match rotation {
+        Rotation::None => m,
+        Rotation::CW90 => MarginF32 {
+            left: m.bottom,
+            right: m.top,
+            top: m.left,
+            bottom: m.right,
+        },
+        Rotation::CW180 => MarginF32 {
+            left: m.right,
+            right: m.left,
+            top: m.bottom,
+            bottom: m.top,
+        },
+        Rotation::CW270 => MarginF32 {
+            left: m.top,
+            right: m.bottom,
+            top: m.right,
+            bottom: m.left,
+        },
+    })
+}
 
 /// Transform a [`RawInput`] from physical screen space to logical UI space.
 ///
@@ -35,6 +66,9 @@ pub(crate) fn rotate_raw_input(raw: &mut RawInput, rotation: Rotation) {
     let physical_size = physical_rect.size();
 
     raw.screen_rect = Some(rotation.transform_screen_rect(physical_rect));
+    if let Some(insets) = raw.safe_area_insets {
+        raw.safe_area_insets = Some(rotate_safe_area_insets(insets, rotation));
+    }
 
     for event in &mut raw.events {
         match event {

@@ -29,7 +29,7 @@ remapped to match.
 - **One-line integration** — `ctx.add_plugin(...)`, works on every backend incl. eframe and the web.
 - **Per-window** — rotation is per-viewport and opt-in, so a rotated cabinet window can coexist with upright child windows.
 - **Exact** — only 90° increments; integer math, no FP drift, no resampling. Text, images and rounded rects all rotate correctly.
-- **Software cursor** (opt-in) — a rotated virtual cursor for kiosks/cabinets where the OS cursor can't be rotated.
+- **Software cursor** (opt-in) — a rotated virtual cursor for kiosks/cabinets where the OS cursor can't be rotated, with soft/hard edge locking, an automatic OS pointer grab, and keyboard/gamepad auto-hide.
 
 ## Multiple windows
 
@@ -59,14 +59,60 @@ use egui_rotate::{Rotation, RotationPlugin, SoftwareCursor};
 
 ctx.add_plugin(
     RotationPlugin::new(Rotation::CW90)
-        .with_software_cursor(SoftwareCursor::new().with_lock(true)),
+        .with_software_cursor(SoftwareCursor::new()),
 );
 ```
 
-In **locked** (kiosk) mode this is fully self-contained: the plugin hides the OS
-cursor and draws the virtual one. In non-locked mode it releases to the OS at the
-window edge — call `take_pending_warp()` once per frame and warp the OS cursor to
-the returned position.
+Out of the box the plugin hides the OS cursor, draws the virtual one, holds an
+OS pointer grab (`Confined`) while captured so the real cursor can't leave the
+window, and **soft-locks** the virtual cursor at the window edge.
+
+### Lock modes
+
+| Mode | Config | Behavior at the window edge |
+|---|---|---|
+| No lock | `.with_edge_resistance(0.0)` | releases to the OS immediately |
+| **Soft lock** *(default)* | `.with_edge_resistance(px)` | resists casual contact; a deliberate push (fast flick or ~150 px of sustained pressure) breaks out |
+| Hard lock | `.with_lock(true)` | never releases (kiosk / cabinet) |
+
+On a breakout the plugin drops its grab; on platforms that support cursor
+warping (everywhere but Wayland), call `take_pending_warp()` once per frame and
+warp the OS cursor to the returned position so it exits where the virtual cursor
+left. `.with_os_cursor_pin(true)` additionally re-centres the real cursor
+whenever it strays ("pseudo-lock") — useful where the grab is unavailable
+(winit's `Confined` covers Windows/X11/Wayland; macOS is `Locked`-only, see
+`with_os_grab`).
+
+### Auto-hide (keyboard & gamepad navigation)
+
+On a front-end navigated by keyboard or joystick, a parked mouse cursor is a
+problem: its hover keeps overriding the selection (flip to the next table, and
+the one under the cursor instantly re-highlights). The software cursor can go
+**dormant**: it dissolves (500 ms fade by default, tune with `with_fade`) and
+egui's hover is cleared, so keyboard/gamepad selection wins. Any deliberate
+mouse use reforms it in place and re-asserts hover.
+
+For the keyboard, opt in once:
+
+```rust
+SoftwareCursor::new().with_dormant_on_keys(true)
+```
+
+For a gamepad or joystick, egui never sees those events — tell the cursor
+yourself wherever you process stick/button input (gilrs, sdl2, evdev, …):
+
+```rust
+// e.g. in a pinball front-end, on any gamepad navigation event:
+ctx.plugin::<RotationPlugin>()
+    .lock()
+    .software_cursor_mut()
+    .unwrap()
+    .set_dormant(true);
+```
+
+Waking is automatic in both cases: a click, wheel tick, touch, or a small burst
+of mouse motion (`with_wake_threshold`, default 6 px — raise it on cabinets that
+shake under nudging) brings the cursor back where it was.
 
 ## Examples & demos
 

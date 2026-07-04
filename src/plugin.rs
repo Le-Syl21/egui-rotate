@@ -23,7 +23,11 @@
 //! - [`input_hook`](egui::Plugin::input_hook): rotates that viewport's pointer/touch
 //!   input into logical space and remembers its logical size for the output stage.
 //! - [`on_end_pass`](egui::Plugin::on_end_pass): with a [`SoftwareCursor`], draws
-//!   the virtual cursor on top (only on the cursor's viewport), in logical space.
+//!   the virtual cursor on top (only on the cursor's viewport), in logical space,
+//!   manages the OS pointer grab ([`SoftwareCursor::with_os_grab`], via
+//!   [`egui::ViewportCommand::CursorGrab`]) and — with
+//!   [`SoftwareCursor::with_os_cursor_pin`] — re-centres the real OS cursor via
+//!   [`egui::ViewportCommand::CursorPosition`] when it strays.
 //! - [`output_hook`](egui::Plugin::output_hook): rotates that viewport's
 //!   pre-tessellation shapes back to physical space and either remaps the OS cursor
 //!   icon or hides it while a software cursor is active.
@@ -98,6 +102,15 @@ pub struct RotationPlugin {
     /// [`Self::take_pending_warp`].
     #[cfg(feature = "software-cursor")]
     pending_warp: Option<Pos2>,
+    /// Pending pseudo-lock re-centre of the OS cursor
+    /// ([`SoftwareCursor::with_os_cursor_pin`]), applied in `on_end_pass` via
+    /// [`egui::ViewportCommand::CursorPosition`].
+    #[cfg(feature = "software-cursor")]
+    pending_pin: Option<Pos2>,
+    /// Whether the plugin currently holds an OS pointer grab
+    /// ([`SoftwareCursor::with_os_grab`]), so commands are only sent on change.
+    #[cfg(feature = "software-cursor")]
+    grab_active: bool,
 }
 
 impl RotationPlugin {
@@ -107,7 +120,7 @@ impl RotationPlugin {
     /// [`Self::set_viewport_rotation`].
     pub fn new(rotation: Rotation) -> Self {
         let mut plugin = Self::default();
-        plugin.rotations.insert(ViewportId::ROOT, rotation);
+        plugin.set_rotation(rotation);
         plugin
     }
 
@@ -125,7 +138,7 @@ impl RotationPlugin {
 
     /// Set the root viewport's rotation. Takes effect on the next frame.
     pub fn set_rotation(&mut self, rotation: Rotation) {
-        self.rotations.insert(ViewportId::ROOT, rotation);
+        self.set_viewport_rotation(ViewportId::ROOT, rotation);
     }
 
     /// The rotation configured for a specific viewport (`None` if unconfigured).
@@ -135,8 +148,15 @@ impl RotationPlugin {
 
     /// Set the rotation for a specific viewport (e.g. a child window). Pass
     /// [`Rotation::None`] to stop rotating it.
+    ///
+    /// [`Rotation::None`] removes the map entry (absent ≡ not rotated), so the
+    /// map does not grow when viewports come and go.
     pub fn set_viewport_rotation(&mut self, viewport: ViewportId, rotation: Rotation) {
-        self.rotations.insert(viewport, rotation);
+        if rotation.is_none() {
+            self.rotations.remove(&viewport);
+        } else {
+            self.rotations.insert(viewport, rotation);
+        }
     }
 }
 
@@ -195,6 +215,15 @@ impl egui::Plugin for RotationPlugin {
         let rotation = self.rotation_for(viewport);
 
         if rotation.is_none() {
+            // Rotation switched off: the OS cursor takes over again, so release a
+            // captured software cursor rather than freezing it with stale state.
+            #[cfg(feature = "software-cursor")]
+            if viewport == self.cursor_viewport {
+                if let Some(cursor) = self.cursor.as_mut() {
+                    cursor.release();
+                }
+                self.pending_pin = None;
+            }
             self.pass_stack.push(PassState::passthrough());
             return;
         }
@@ -207,6 +236,9 @@ impl egui::Plugin for RotationPlugin {
                 let out = cursor.process_input(input, rotation, physical_size);
                 if let Some(warp) = out.release_os_cursor_to {
                     self.pending_warp = Some(warp);
+                }
+                if let Some(pin) = out.pin_os_cursor_to {
+                    self.pending_pin = Some(pin);
                 }
                 true
             }
@@ -232,10 +264,45 @@ impl egui::Plugin for RotationPlugin {
     fn on_end_pass(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let viewport = ctx.viewport_id();
-        if viewport != self.cursor_viewport || self.rotation_for(viewport).is_none() {
+        if viewport != self.cursor_viewport {
             return;
         }
+        let rotated = !self.rotation_for(viewport).is_none();
         let Some(cursor) = &self.cursor else { return };
+
+        // ── OS pointer grab lifecycle: grab while captured, release otherwise —
+        // including when rotation is switched off at runtime, which is why this
+        // runs before the `rotated` early-return below.
+        if let Some(mode) = cursor.os_grab() {
+            let desired = rotated && cursor.is_captured();
+            if desired != self.grab_active {
+                self.grab_active = desired;
+                ctx.send_viewport_cmd_to(
+                    viewport,
+                    egui::ViewportCommand::CursorGrab(if desired {
+                        mode
+                    } else {
+                        egui::viewport::CursorGrab::None
+                    }),
+                );
+            }
+        }
+
+        if !rotated {
+            return;
+        }
+
+        // Pseudo-lock: re-centre the real OS cursor while captured, so it can
+        // never physically reach the window edge or leave the window.
+        if let Some(pos) = self.pending_pin.take() {
+            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::CursorPosition(pos));
+        }
+
+        // Keep frames coming while the cursor dissolves or reforms.
+        if cursor.is_fading() {
+            ctx.request_repaint();
+        }
+
         if cursor.virtual_pos().is_none() {
             return;
         }
@@ -258,7 +325,22 @@ impl egui::Plugin for RotationPlugin {
             return;
         }
 
-        crate::rotate_clipped_shapes(&mut output.shapes, state.rotation, state.logical_size);
+        // A pass without a `screen_rect` has no usable size (`logical_size` is
+        // zero); skip the geometric transforms rather than mapping through it.
+        if state.logical_size != Vec2::ZERO {
+            crate::rotate_clipped_shapes(&mut output.shapes, state.rotation, state.logical_size);
+
+            // The IME area is computed in logical space, but the backend positions
+            // the OS composition window in physical screen space.
+            if let Some(ime) = &mut output.platform_output.ime {
+                ime.rect = state
+                    .rotation
+                    .inverse_transform_rect(ime.rect, state.logical_size);
+                ime.cursor_rect = state
+                    .rotation
+                    .inverse_transform_rect(ime.cursor_rect, state.logical_size);
+            }
+        }
 
         // On the software cursor's viewport, hide the OS cursor while captured (we
         // draw our own). Otherwise remap directional icons so the OS cursor, which

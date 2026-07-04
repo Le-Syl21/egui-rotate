@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use egui::{
-    epaint::{ClippedShape, Mesh, RectShape, Shape, Vertex},
+    epaint::{ClippedShape, Mesh, PathShape, RectShape, Shape, StrokeKind, Vertex},
     Pos2, Rect, Vec2,
 };
 
@@ -32,9 +32,7 @@ pub fn rotate_clipped_shapes(shapes: &mut [ClippedShape], rotation: Rotation, lo
     }
 
     for clipped in shapes.iter_mut() {
-        let min = rotation.inverse_transform_pos(clipped.clip_rect.min, logical_size);
-        let max = rotation.inverse_transform_pos(clipped.clip_rect.max, logical_size);
-        clipped.clip_rect = Rect::from_two_pos(min, max);
+        clipped.clip_rect = rotation.inverse_transform_rect(clipped.clip_rect, logical_size);
 
         rotate_shape(&mut clipped.shape, rotation, logical_size);
     }
@@ -65,7 +63,11 @@ pub fn rotate_shape(shape: &mut Shape, rotation: Rotation, logical_size: Vec2) {
     // ourselves instead, with rotated corners and corner-matched UVs.
     if let Shape::Rect(r) = shape {
         if r.brush.is_some() {
-            *shape = Shape::Mesh(Arc::new(textured_rect_to_mesh(r, rotation, logical_size)));
+            let mesh = Shape::Mesh(Arc::new(textured_rect_to_mesh(r, rotation, logical_size)));
+            *shape = match textured_rect_outline(r, rotation, logical_size) {
+                Some(outline) => Shape::Vec(vec![mesh, outline]),
+                None => mesh,
+            };
             return;
         }
     }
@@ -137,6 +139,38 @@ pub fn rotate_shape(shape: &mut Shape, rotation: Rotation, logical_size: Vec2) {
         // cannot be rotated here. Documented limitation.
         Shape::Callback(_) => {}
     }
+}
+
+/// Outline for a rotated textured rect, or `None` if its stroke is invisible.
+///
+/// [`textured_rect_to_mesh`] only emits the fill quad, so a visible border must
+/// be re-added as a closed path over the rotated corners. [`StrokeKind`] is
+/// honoured by insetting/outsetting the outline by half the stroke width before
+/// rotation (corner radius, like the fill's, is not preserved).
+fn textured_rect_outline(
+    rect: &RectShape,
+    rotation: Rotation,
+    logical_size: Vec2,
+) -> Option<Shape> {
+    if rect.stroke.is_empty() {
+        return None;
+    }
+
+    let half = rect.stroke.width / 2.0;
+    let r = match rect.stroke_kind {
+        StrokeKind::Inside => rect.rect.shrink(half),
+        StrokeKind::Middle => rect.rect,
+        StrokeKind::Outside => rect.rect.expand(half),
+    };
+
+    let map = |p: Pos2| rotation.inverse_transform_pos(p, logical_size);
+    let pts = vec![
+        map(r.left_top()),
+        map(r.right_top()),
+        map(r.right_bottom()),
+        map(r.left_bottom()),
+    ];
+    Some(Shape::Path(PathShape::closed_line(pts, rect.stroke)))
 }
 
 /// Build a rotated textured quad [`Mesh`] from a brushed [`RectShape`].

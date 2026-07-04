@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-04
+
+The software cursor becomes fully self-contained — edge locking, the OS pointer
+grab and cursor hiding are now all handled by the plugin — and learns to
+**auto-hide** for keyboard/gamepad-navigated front-ends.
+
+### Added
+- **Soft lock** (`SoftwareCursor::with_edge_resistance`, `DEFAULT_EDGE_RESISTANCE`,
+  `EDGE_PRESSURE_RESET_SECS`) — a GNOME-style pressure barrier at the window
+  edge: casual contact stays confined, a deliberate push (fast flick or
+  sustained pressure) breaks out and releases to the OS. Sits between no lock
+  (`0.0`) and the hard `with_lock(true)`.
+- **Automatic OS pointer grab** (`SoftwareCursor::with_os_grab`) — while the
+  cursor is captured, the plugin sends `ViewportCommand::CursorGrab` itself
+  (`Confined` by default; released on breakout or when rotation turns off).
+  This is what keeps the real cursor inside the window on Wayland.
+- **OS-cursor pin / "pseudo-lock"** (`SoftwareCursor::with_os_cursor_pin`) —
+  re-warps the hidden real cursor to the window centre whenever it strays,
+  via `ViewportCommand::CursorPosition`, for platforms where the grab is
+  unavailable. `SoftwareCursorOutput::pin_os_cursor_to` exposes it to custom
+  pipelines.
+- **Auto-hide / dormancy** (`SoftwareCursor::set_dormant`, `is_dormant`,
+  `with_dormant_on_keys`, `with_wake_threshold`, `DEFAULT_WAKE_THRESHOLD`) —
+  the cursor hides and egui's hover is cleared (`PointerGone`), so
+  keyboard/gamepad selection is no longer overridden by a parked pointer.
+  Keyboard triggering is opt-in; gamepads/joysticks call `set_dormant(true)`
+  from the integration. Deliberate mouse use (click, wheel, touch, or a burst
+  of motion past the wake threshold) wakes it and re-asserts hover in place;
+  the burst accumulator resets after a pause so cabinet nudging never wakes it.
+- **Fade animation** (`SoftwareCursor::with_fade`, `opacity`, `is_fading`,
+  `DEFAULT_FADE`) — dormancy transitions dissolve/reform the cursor over 500 ms
+  by default instead of popping; the plugin requests repaints while fading.
+- `SoftwareCursor::release()` — public counterpart of `set_virtual_pos`.
+- `Rotation::inverse_transform_rect` — rect variant of `inverse_transform_pos`.
+- `plugin_demo`: no/soft/hard lock selector with edge-resistance slider,
+  auto-hide toggle with fade slider (`H`), 📷 screenshot button (`S`), window
+  resize on rotation, shortcuts inert while typing.
+- docs.rs now builds with all features (`software-cursor` API visible online).
+
+### Changed
+- **`SoftwareCursor::new()` defaults changed**: soft lock at 150 px (was: release
+  immediately at the edge — restore with `.with_edge_resistance(0.0)`) and an
+  automatic `Confined` OS grab (opt out with `.with_os_grab(None)` if your
+  integration manages the grab itself).
+
+### Fixed
+- **IME area not rotated** — `platform_output.ime` rects are now mapped back to
+  physical space, so the OS composition window (CJK input) appears at the right
+  place on rotated viewports.
+- **Safe-area insets not rotated** (follow-up to [#1]) — `RawInput::safe_area_insets`
+  sides are remapped through the rotation (a physical top notch becomes a logical
+  right inset under CW90), fixing `content_rect()` on rotated mobile viewports.
+- **Textured rects lost their stroke** — a brushed `RectShape` with a visible
+  border now re-emits the border as a closed path over the rotated corners
+  (`StrokeKind` honoured; corner radius still not preserved).
+- **Stale software-cursor capture** — switching a viewport to `Rotation::None`
+  at runtime now releases a captured cursor (and its grab) instead of freezing it.
+- `set_viewport_rotation(…, Rotation::None)` removes the map entry, so the
+  per-viewport map no longer grows with transient viewports.
+- `output_hook` skips geometric transforms when a pass has no usable screen size.
+
+[#1]: https://github.com/Le-Syl21/egui-rotate/pull/1
+
 ## [1.0.0] - 2026-06-10
 
 The crate becomes **plugin-first**. Where 0.1.x asked you to call helper
@@ -112,7 +175,9 @@ ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 - `rotated_demo` example — winit + glow + egui_glow integration demonstrating
   every feature, with `R` to cycle rotation and `L` to toggle the cursor lock
 
-[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Le-Syl21/egui-rotate/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.6...v1.0.0
 [0.1.5]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.3...v0.1.4
 [0.1.0]: https://github.com/Le-Syl21/egui-rotate/releases/tag/v0.1.0

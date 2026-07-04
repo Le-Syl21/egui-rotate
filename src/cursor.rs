@@ -11,17 +11,51 @@
 //!    cursor position so egui interaction works as expected.
 //! 4. Draw a small cursor shape at the virtual position each frame.
 //!
-//! The integration layer (your SDL3 / winit / etc. code) is responsible for
-//! actually hiding the OS cursor, warping it, and re-showing it on release.
+//! Through the [`crate::RotationPlugin`] all of this is automatic: the plugin
+//! hides the OS cursor, holds an OS pointer grab while captured
+//! ([`SoftwareCursor::with_os_grab`]) and can pin the real cursor to the window
+//! centre ([`SoftwareCursor::with_os_cursor_pin`]). Only two things may involve
+//! the integration layer:
+//!
+//! - warping the OS cursor to the exit point on an edge release
+//!   ([`crate::RotationPlugin::take_pending_warp`], unsupported on Wayland);
+//! - putting the cursor to sleep on **gamepad/joystick** input
+//!   ([`SoftwareCursor::set_dormant`]) — egui never sees those events, so the
+//!   front-end must signal them (keyboard triggering is built in, opt-in via
+//!   [`SoftwareCursor::with_dormant_on_keys`]).
+//!
+//! Fully custom pipelines (without the plugin) drive everything themselves:
 //! [`SoftwareCursor::process_input`] returns a [`SoftwareCursorOutput`] that
-//! signals when a release/warp should happen.
+//! signals when a release/warp or pin should happen.
 
 use egui::{
     epaint::{Color32, Mesh, PathShape, Stroke},
-    vec2, CursorIcon, Event, Painter, Pos2, RawInput, Rect, Shape, Vec2,
+    vec2,
+    viewport::CursorGrab,
+    CursorIcon, Event, Painter, Pos2, RawInput, Rect, Shape, Vec2,
 };
 
 use crate::Rotation;
+
+/// Pause (seconds) after which soft-lock edge pressure resets.
+/// See [`SoftwareCursor::with_edge_resistance`].
+pub const EDGE_PRESSURE_RESET_SECS: f64 = 0.25;
+
+/// Default soft-lock edge resistance (px), used by [`SoftwareCursor::new`].
+/// See [`SoftwareCursor::with_edge_resistance`].
+pub const DEFAULT_EDGE_RESISTANCE: f32 = 150.0;
+
+/// Default mouse motion (px, within one burst) that wakes a dormant cursor.
+/// See [`SoftwareCursor::with_wake_threshold`].
+pub const DEFAULT_WAKE_THRESHOLD: f32 = 6.0;
+
+/// Pause (seconds) after which accumulated wake motion resets, so slow ambient
+/// jitter (e.g. cabinet nudging) never wakes a dormant cursor.
+const WAKE_RESET_SECS: f64 = 0.25;
+
+/// Default fade duration for dormancy transitions.
+/// See [`SoftwareCursor::with_fade`].
+pub const DEFAULT_FADE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// State for the software cursor.
 ///
@@ -42,6 +76,46 @@ pub struct SoftwareCursor {
     /// If `true`, virtual cursor is clamped inside the window — no edge release.
     /// Use for kiosk / fullscreen scenarios.
     locked: bool,
+
+    /// If `true`, the **real** OS cursor is re-warped to the window centre
+    /// whenever it strays ("pseudo-lock"). See [`Self::with_os_cursor_pin`].
+    pin_os_cursor: bool,
+
+    /// OS pointer grab the plugin applies while captured (`None` = the
+    /// integration manages grabbing itself). See [`Self::with_os_grab`].
+    os_grab: Option<CursorGrab>,
+
+    /// Soft-lock: accumulated outward push (px) needed to break through a window
+    /// edge. `0.0` releases immediately; defaults to [`DEFAULT_EDGE_RESISTANCE`].
+    /// See [`Self::with_edge_resistance`].
+    edge_resistance: f32,
+    /// Pressure accumulated against the edge so far (soft-lock state).
+    edge_pressure: f32,
+    /// `RawInput::time` of the last edge push, for the pressure-reset pause.
+    last_edge_push: Option<f64>,
+
+    /// Dormant (auto-hide): cursor hidden and egui hover cleared, e.g. while
+    /// navigating by keyboard/gamepad. See [`Self::set_dormant`].
+    dormant: bool,
+    /// Go dormant automatically on keyboard/text input (default `false`).
+    dormant_on_keys: bool,
+    /// Mouse motion (px, within one burst) that wakes a dormant cursor.
+    wake_threshold: f32,
+    /// Motion accumulated towards waking (dormant state).
+    wake_accum: f32,
+    /// `RawInput::time` of the last wake motion, for the burst-reset pause.
+    last_wake_motion: Option<f64>,
+    /// One-shot: inject `PointerGone` on the next pass (entered dormancy).
+    pending_hover_clear: bool,
+    /// One-shot: re-assert hover on the next pass (woke via [`Self::set_dormant`]).
+    pending_hover_wake: bool,
+
+    /// Fade duration (seconds) for dormancy transitions. See [`Self::with_fade`].
+    fade_secs: f32,
+    /// Current draw opacity, animated towards 0 (dormant) or 1 (awake).
+    opacity: f32,
+    /// `RawInput::time` of the last fade step, for the animation delta.
+    last_fade_time: Option<f64>,
 }
 
 impl Default for SoftwareCursor {
@@ -51,6 +125,21 @@ impl Default for SoftwareCursor {
             captured: false,
             scale: 1.0,
             locked: false,
+            pin_os_cursor: false,
+            os_grab: Some(CursorGrab::Confined),
+            edge_resistance: DEFAULT_EDGE_RESISTANCE,
+            edge_pressure: 0.0,
+            last_edge_push: None,
+            dormant: false,
+            dormant_on_keys: false,
+            wake_threshold: DEFAULT_WAKE_THRESHOLD,
+            wake_accum: 0.0,
+            last_wake_motion: None,
+            pending_hover_clear: false,
+            pending_hover_wake: false,
+            fade_secs: DEFAULT_FADE.as_secs_f32(),
+            opacity: 1.0,
+            last_fade_time: None,
         }
     }
 }
@@ -63,9 +152,21 @@ pub struct SoftwareCursorOutput {
     /// cursor was released to the OS. The position is already 3px outside the
     /// window so the OS treats it as "the user left."
     pub release_os_cursor_to: Option<Pos2>,
+
+    /// If `Some`, the OS cursor should be **warped** to this **physical** position
+    /// (the window centre) while staying hidden — the pseudo-lock re-centring of
+    /// [`SoftwareCursor::with_os_cursor_pin`]. The [`crate::RotationPlugin`]
+    /// handles this itself via [`egui::ViewportCommand::CursorPosition`]; only
+    /// fully custom pipelines need to act on it.
+    pub pin_os_cursor_to: Option<Pos2>,
 }
 
 impl SoftwareCursor {
+    /// A software cursor with the default behavior: **soft lock** at
+    /// [`DEFAULT_EDGE_RESISTANCE`] px (see [`Self::with_edge_resistance`]),
+    /// an automatic `Confined` OS grab while captured (see
+    /// [`Self::with_os_grab`]), no hard lock, no OS-cursor pin, no auto-hide
+    /// on keyboard (see [`Self::with_dormant_on_keys`]), scale `1.0`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -77,8 +178,98 @@ impl SoftwareCursor {
     }
 
     /// Lock the virtual cursor inside the window (no edge release).
+    ///
+    /// Note this clamps the *virtual* cursor only — the real OS cursor still
+    /// travels the window physically and can even leave it (events then stop,
+    /// freezing the virtual cursor). Combine with [`Self::with_os_cursor_pin`]
+    /// to keep the real cursor pinned too.
     pub fn with_lock(mut self, locked: bool) -> Self {
         self.locked = locked;
+        self
+    }
+
+    /// Pin the **real** OS cursor near the window centre ("pseudo-lock").
+    ///
+    /// While the software cursor is captured, the hidden OS cursor keeps moving
+    /// physically and can wander to the window edge or out of the window
+    /// entirely — at which point events stop and the virtual cursor freezes.
+    /// With pinning enabled, whenever the real cursor strays past a dead zone
+    /// (a quarter of the smaller window dimension) it is warped back to the
+    /// window centre, so it can never escape. Raw-delta tracking is unaffected.
+    ///
+    /// The [`crate::RotationPlugin`] applies the warp automatically through
+    /// [`egui::ViewportCommand::CursorPosition`], which any egui-winit / eframe
+    /// backend honours. **Wayland** does not support cursor warping — there the
+    /// plugin's automatic OS grab ([`Self::with_os_grab`]) confines the cursor
+    /// instead.
+    pub fn with_os_cursor_pin(mut self, pin: bool) -> Self {
+        self.pin_os_cursor = pin;
+        self
+    }
+
+    /// Which OS pointer grab the plugin applies while the cursor is captured.
+    ///
+    /// With `Some(mode)` — the default is `Some(CursorGrab::Confined)` — the
+    /// [`crate::RotationPlugin`] sends [`egui::ViewportCommand::CursorGrab`]
+    /// automatically: `mode` when the software cursor captures, and
+    /// `CursorGrab::None` when it releases (edge breakout, [`Self::release`],
+    /// or rotation switched off). The grab keeps the *real* OS cursor from
+    /// leaving the window at the OS level — the complement of
+    /// [`Self::with_os_cursor_pin`], and the mechanism that works on Wayland
+    /// (where cursor warping is unsupported).
+    ///
+    /// Platform support (winit): `Confined` works on Windows, X11 and Wayland;
+    /// `Locked` on macOS and Wayland. An unsupported mode logs a warning and
+    /// grabs nothing — on macOS use `Locked` (with
+    /// [`Self::set_virtual_pos`] to seed tracking) or rely on the pin.
+    ///
+    /// Pass `None` if your integration manages the pointer grab itself.
+    pub fn with_os_grab(mut self, grab: Option<CursorGrab>) -> Self {
+        self.os_grab = grab;
+        self
+    }
+
+    /// Go dormant automatically on keyboard/text input (**off** by default).
+    /// See [`Self::set_dormant`] for what dormancy does.
+    pub fn with_dormant_on_keys(mut self, on: bool) -> Self {
+        self.dormant_on_keys = on;
+        self
+    }
+
+    /// Mouse motion (px, accumulated within one burst) needed to wake a dormant
+    /// cursor. Default [`DEFAULT_WAKE_THRESHOLD`]. Pausing resets the
+    /// accumulation, so ambient jitter — e.g. a pinball cabinet shaking under
+    /// nudges — never wakes the cursor; raise this on vibration-prone setups.
+    pub fn with_wake_threshold(mut self, px: f32) -> Self {
+        self.wake_threshold = px.max(0.0);
+        self
+    }
+
+    /// Fade the cursor out/in over this duration on dormancy transitions,
+    /// instead of popping (default [`DEFAULT_FADE`], 500 ms).
+    /// [`Duration::ZERO`](std::time::Duration::ZERO) disables the animation.
+    pub fn with_fade(mut self, fade: std::time::Duration) -> Self {
+        self.fade_secs = fade.as_secs_f32();
+        self
+    }
+
+    /// Soft-lock: require `resistance` pixels of accumulated outward push before
+    /// an edge releases the cursor to the OS. **This is the default behavior**,
+    /// at [`DEFAULT_EDGE_RESISTANCE`] px.
+    ///
+    /// A middle ground between no lock (`0.0`: any edge contact releases) and
+    /// [`Self::with_lock`] (hard lock: never releases): the cursor stays confined
+    /// against casual contact, but a deliberate push — a fast flick, or holding
+    /// against the edge — breaks through once the summed overshoot reaches
+    /// `resistance`. Pausing for [`EDGE_PRESSURE_RESET_SECS`] resets the
+    /// accumulated pressure, so resting near the edge never slowly builds up a
+    /// breakout.
+    ///
+    /// This is the "pressure barrier" model used by GNOME Shell's hot corners
+    /// and X11 pointer barriers. Typical values: 100–300 px. Ignored while
+    /// [`Self::with_lock`] is on.
+    pub fn with_edge_resistance(mut self, resistance: f32) -> Self {
+        self.edge_resistance = resistance.max(0.0);
         self
     }
 
@@ -88,6 +279,118 @@ impl SoftwareCursor {
 
     pub fn set_lock(&mut self, locked: bool) {
         self.locked = locked;
+    }
+
+    /// See [`Self::with_os_cursor_pin`].
+    pub fn set_os_cursor_pin(&mut self, pin: bool) {
+        self.pin_os_cursor = pin;
+    }
+
+    /// See [`Self::with_edge_resistance`].
+    pub fn set_edge_resistance(&mut self, resistance: f32) {
+        self.edge_resistance = resistance.max(0.0);
+    }
+
+    /// See [`Self::with_os_grab`].
+    pub fn set_os_grab(&mut self, grab: Option<CursorGrab>) {
+        self.os_grab = grab;
+    }
+
+    pub fn os_grab(&self) -> Option<CursorGrab> {
+        self.os_grab
+    }
+
+    /// Put the cursor to sleep ("dormant") or wake it.
+    ///
+    /// While dormant the virtual cursor is hidden and frozen, and egui receives
+    /// a [`Event::PointerGone`] so hover and selection follow the keyboard
+    /// instead of the stale pointer position — the mouse no longer overrides
+    /// keyboard/gamepad navigation. Any deliberate mouse use (a click, wheel,
+    /// touch, or [`Self::with_wake_threshold`] px of motion) wakes it, hover
+    /// re-asserted at the remembered position.
+    ///
+    /// Keyboard/text input can trigger dormancy automatically (opt-in, see
+    /// [`Self::with_dormant_on_keys`]). Call this yourself for input egui
+    /// cannot see — e.g. gamepad/joystick navigation in a pinball front-end:
+    /// `plugin.software_cursor_mut().unwrap().set_dormant(true)` on stick input.
+    /// Transitions fade over [`Self::with_fade`].
+    pub fn set_dormant(&mut self, dormant: bool) {
+        if dormant == self.dormant {
+            return;
+        }
+        self.dormant = dormant;
+        self.wake_accum = 0.0;
+        self.last_wake_motion = None;
+        if dormant {
+            self.pending_hover_clear = true;
+        } else {
+            self.pending_hover_wake = true;
+        }
+    }
+
+    pub fn is_dormant(&self) -> bool {
+        self.dormant
+    }
+
+    /// See [`Self::with_dormant_on_keys`].
+    pub fn set_dormant_on_keys(&mut self, on: bool) {
+        self.dormant_on_keys = on;
+    }
+
+    /// See [`Self::with_wake_threshold`].
+    pub fn set_wake_threshold(&mut self, px: f32) {
+        self.wake_threshold = px.max(0.0);
+    }
+
+    /// See [`Self::with_fade`].
+    pub fn set_fade(&mut self, fade: std::time::Duration) {
+        self.fade_secs = fade.as_secs_f32();
+    }
+
+    /// Current draw opacity: `1.0` awake, `0.0` fully dormant, in between
+    /// while fading.
+    pub fn opacity(&self) -> f32 {
+        self.opacity
+    }
+
+    /// `true` while a dormancy fade is in progress. Integrations driving their
+    /// own repaint loop should keep repainting while this returns `true` (the
+    /// [`crate::RotationPlugin`] requests repaints itself).
+    pub fn is_fading(&self) -> bool {
+        if self.dormant {
+            self.opacity > 0.0
+        } else {
+            self.opacity < 1.0
+        }
+    }
+
+    /// Advance the fade animation towards the current dormancy target.
+    /// Snaps when the animation is disabled or no clock is available.
+    fn step_fade(&mut self, now: Option<f64>) {
+        let target = if self.dormant { 0.0 } else { 1.0 };
+        match now {
+            Some(now) if self.fade_secs > 0.0 => {
+                let dt = self
+                    .last_fade_time
+                    .map_or(0.0, |last| (now - last).max(0.0) as f32);
+                self.last_fade_time = Some(now);
+                let step = dt / self.fade_secs;
+                self.opacity = if target > self.opacity {
+                    (self.opacity + step).min(target)
+                } else {
+                    (self.opacity - step).max(target)
+                };
+            }
+            _ => self.opacity = target,
+        }
+    }
+
+    pub fn edge_resistance(&self) -> f32 {
+        self.edge_resistance
+    }
+
+    pub fn os_cursor_pin(&self) -> bool {
+        self.pin_os_cursor
     }
 
     pub fn scale(&self) -> f32 {
@@ -121,6 +424,62 @@ impl SoftwareCursor {
         self.virtual_pos = Some(pos);
     }
 
+    /// Release the cursor: stop capturing and forget the virtual position.
+    ///
+    /// The counterpart of [`Self::set_virtual_pos`]. The plugin calls this when
+    /// its viewport stops rotating, so a captured cursor is not frozen with
+    /// stale state; integrations that release the OS grab themselves can call
+    /// it too.
+    pub fn release(&mut self) {
+        self.captured = false;
+        self.virtual_pos = None;
+        self.edge_pressure = 0.0;
+        self.last_edge_push = None;
+        self.dormant = false;
+        self.wake_accum = 0.0;
+        self.last_wake_motion = None;
+        self.pending_hover_clear = false;
+        self.pending_hover_wake = false;
+        self.opacity = 1.0;
+        self.last_fade_time = None;
+    }
+
+    /// Soft-lock accounting for one edge push: accumulate its overshoot (how far
+    /// past the window bounds it tried to go) and decide whether the total breaks
+    /// through. Zero resistance breaks immediately — the default hard release.
+    fn edge_push_breaks_out(
+        &mut self,
+        new_x: f32,
+        new_y: f32,
+        logical_size: Vec2,
+        now: Option<f64>,
+    ) -> bool {
+        if self.edge_resistance <= 0.0 {
+            return true;
+        }
+
+        // A pause between pushes drops the pressure, so resting against the
+        // edge can't slowly build up an accidental breakout.
+        if let (Some(now), Some(last)) = (now, self.last_edge_push) {
+            if now - last > EDGE_PRESSURE_RESET_SECS {
+                self.edge_pressure = 0.0;
+            }
+        }
+        self.last_edge_push = now;
+
+        let over_x = (-new_x).max(new_x - logical_size.x).max(0.0);
+        let over_y = (-new_y).max(new_y - logical_size.y).max(0.0);
+        self.edge_pressure += Vec2::new(over_x, over_y).length();
+
+        if self.edge_pressure >= self.edge_resistance {
+            self.edge_pressure = 0.0;
+            self.last_edge_push = None;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Process raw input: update virtual cursor state, rewrite events.
     ///
     /// Call **after** [`crate::transform_raw_input`] (or in place of it — this
@@ -149,10 +508,42 @@ impl SoftwareCursor {
         // Rotate screen_rect to logical space (idempotent if already rotated).
         let logical_rect = rotation.transform_screen_rect(physical_rect);
         raw.screen_rect = Some(logical_rect);
+        // A notch on a physical side covers a different logical side once
+        // rotated (idempotent too: `None` insets stay `None`).
+        if let Some(insets) = raw.safe_area_insets {
+            raw.safe_area_insets = Some(crate::input::rotate_safe_area_insets(insets, rotation));
+        }
         let logical_size = logical_rect.size();
         let edge_margin = 1.0;
+        let now = raw.time;
+
+        // ── Dormancy (auto-hide) — see `set_dormant` ──
+        let mut woke = false;
+        if self.captured {
+            woke = self.update_dormancy(&raw.events, now)
+                || std::mem::take(&mut self.pending_hover_wake);
+        }
+        self.step_fade(now);
+        if self.captured && self.dormant {
+            // Asleep: freeze the virtual cursor and swallow pointer motion
+            // so egui regains no hover; keyboard/text pass through, and the
+            // transition frame ends with a `PointerGone` clearing the hover.
+            raw.events.retain(|e| {
+                !matches!(
+                    e,
+                    Event::PointerMoved(_) | Event::MouseMoved(_) | Event::MouseWheel { .. }
+                )
+            });
+            if std::mem::take(&mut self.pending_hover_clear) {
+                raw.events.push(Event::PointerGone);
+            }
+            return out;
+        }
 
         // ── Pass 1 — update capture state from raw deltas / pointer events ──
+        // Also remember where the real OS cursor is (physical space, before the
+        // rewrite in Pass 2) for the pseudo-lock stray check below.
+        let mut last_physical_pointer = None;
         for event in &raw.events {
             match event {
                 Event::MouseMoved(delta) => {
@@ -172,7 +563,10 @@ impl SoftwareCursor {
                         || new_y <= 0.0
                         || new_y >= logical_size.y;
 
-                    if at_edge && !self.locked {
+                    if at_edge
+                        && !self.locked
+                        && self.edge_push_breaks_out(new_x, new_y, logical_size, now)
+                    {
                         // Release: warp 3px outside the window in logical space,
                         // then convert to physical for the OS.
                         let overshoot = 3.0;
@@ -197,6 +591,10 @@ impl SoftwareCursor {
                         self.captured = false;
                         self.virtual_pos = None;
                     } else {
+                        if !at_edge {
+                            // Moved freely inside: any soft-lock pressure is stale.
+                            self.edge_pressure = 0.0;
+                        }
                         let clamped = Pos2::new(
                             new_x.clamp(edge_margin, logical_size.x - edge_margin),
                             new_y.clamp(edge_margin, logical_size.y - edge_margin),
@@ -204,16 +602,34 @@ impl SoftwareCursor {
                         self.virtual_pos = Some(clamped);
                     }
                 }
-                Event::PointerMoved(pos) if !self.captured && self.virtual_pos.is_none() => {
-                    let entry = rotation.transform_pos(*pos, physical_size);
-                    self.captured = true;
-                    self.virtual_pos = Some(entry);
+                Event::PointerMoved(pos) => {
+                    last_physical_pointer = Some(*pos);
+                    if !self.captured && self.virtual_pos.is_none() {
+                        let entry = rotation.transform_pos(*pos, physical_size);
+                        self.captured = true;
+                        self.virtual_pos = Some(entry);
+                        // Capture by mouse re-entry is mouse use: never dormant,
+                        // and instantly visible (no fade-in on entry).
+                        self.dormant = false;
+                        self.opacity = 1.0;
+                    }
                 }
                 Event::PointerGone => {
-                    self.captured = false;
-                    self.virtual_pos = None;
+                    self.release();
                 }
                 _ => {}
+            }
+        }
+
+        // ── Pseudo-lock — keep the real OS cursor pinned near the centre ──
+        // Re-warp only when it strays past a dead zone: each warp requests a
+        // repaint, so warping every frame would spin the event loop for nothing.
+        if self.pin_os_cursor && self.captured {
+            if let Some(pos) = last_physical_pointer {
+                let center = (physical_size / 2.0).to_pos2();
+                if (pos - center).length() > 0.25 * physical_size.min_elem() {
+                    out.pin_os_cursor_to = Some(center);
+                }
             }
         }
 
@@ -243,7 +659,60 @@ impl SoftwareCursor {
             }
         }
 
+        // Waking re-asserts the hover at the remembered position, so the UI
+        // under the reappearing cursor highlights again immediately. Pushed
+        // after the passes so our own Pass 1 never sees this logical-space
+        // event (it would pollute the pseudo-lock stray check).
+        if woke {
+            if let Some(pos) = self.virtual_pos {
+                raw.events.push(Event::PointerMoved(pos));
+            }
+        }
+
         out
+    }
+
+    /// Dormancy state machine (see [`Self::set_dormant`]): keyboard/text use
+    /// puts the captured cursor to sleep; deliberate mouse use — click, wheel,
+    /// touch, or a burst of motion past the wake threshold — wakes it. Returns
+    /// `true` when the cursor woke during this call.
+    fn update_dormancy(&mut self, events: &[Event], now: Option<f64>) -> bool {
+        let mut motion = 0.0f32;
+        let mut deliberate = false;
+        let mut keyed = false;
+        for event in events {
+            match event {
+                Event::MouseMoved(delta) => motion += delta.length(),
+                Event::PointerButton { .. } | Event::MouseWheel { .. } | Event::Touch { .. } => {
+                    deliberate = true;
+                }
+                Event::Key { .. } | Event::Text(_) => keyed = true,
+                _ => {}
+            }
+        }
+
+        if self.dormant {
+            // The wake motion must come as one deliberate burst: a pause resets
+            // the accumulator, so ambient jitter (cabinet nudges) never wakes.
+            if let (Some(now), Some(last)) = (now, self.last_wake_motion) {
+                if now - last > WAKE_RESET_SECS {
+                    self.wake_accum = 0.0;
+                }
+            }
+            if motion > 0.0 {
+                self.last_wake_motion = now;
+                self.wake_accum += motion;
+            }
+            if deliberate || self.wake_accum >= self.wake_threshold {
+                self.dormant = false;
+                self.wake_accum = 0.0;
+                self.last_wake_motion = None;
+                return true;
+            }
+        } else if self.dormant_on_keys && keyed && !deliberate && motion < 1.0 {
+            self.set_dormant(true);
+        }
+        false
     }
 
     /// Draw the software cursor at its current virtual position.
@@ -266,8 +735,18 @@ impl SoftwareCursor {
     /// like resize arrows visually match the user's perception of the rotated
     /// screen.
     pub fn draw(&self, painter: &Painter, cursor_icon: CursorIcon) {
+        if self.opacity <= 0.0 {
+            return;
+        }
         let Some(pos) = self.virtual_pos else { return };
-        paint_cursor_shape(painter, cursor_icon, pos, self.scale);
+        if self.opacity >= 1.0 {
+            paint_cursor_shape(painter, cursor_icon, pos, self.scale);
+        } else {
+            // Mid-fade (dormancy transition): draw semi-transparent.
+            let mut faded = painter.clone();
+            faded.set_opacity(self.opacity);
+            paint_cursor_shape(&faded, cursor_icon, pos, self.scale);
+        }
     }
 }
 

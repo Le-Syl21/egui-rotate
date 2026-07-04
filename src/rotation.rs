@@ -86,6 +86,19 @@ impl Rotation {
         }
     }
 
+    /// Transform an axis-aligned rect from logical UI space back to physical
+    /// screen space.
+    ///
+    /// Re-normalised via [`Rect::from_two_pos`], since the rotation can swap
+    /// which corner is min and which is max.
+    #[inline]
+    pub fn inverse_transform_rect(self, rect: Rect, logical_size: Vec2) -> Rect {
+        Rect::from_two_pos(
+            self.inverse_transform_pos(rect.min, logical_size),
+            self.inverse_transform_pos(rect.max, logical_size),
+        )
+    }
+
     /// Transform a delta/vector (no translation needed).
     #[inline]
     pub fn transform_vec(self, vec: Vec2) -> Vec2 {
