@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-05
+
+### Changed
+- **egui dependency narrowed to the 0.34 minor** (`>=0.34, <0.35`). The previous
+  `<0.36` range broke against egui 0.35, whose `Plugin` trait added a `&Context`
+  parameter to `input_hook`/`output_hook` — one code base cannot implement both
+  signatures. This also made the v1.1.0 release CI fail before publishing, so
+  1.1.0 never reached crates.io; 1.1.1 is identical apart from this pin.
+  egui 0.35 support will land in a dedicated release.
+
 ## [1.1.0] - 2026-07-04
 
 The software cursor becomes fully self-contained — edge locking, the OS pointer
@@ -175,7 +185,8 @@ ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 - `rotated_demo` example — winit + glow + egui_glow integration demonstrating
   every feature, with `R` to cycle rotation and `L` to toggle the cursor lock
 
-[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Le-Syl21/egui-rotate/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.6...v1.0.0
 [0.1.5]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.4...v0.1.5

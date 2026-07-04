@@ -166,8 +166,10 @@ correct answer.
 
 ## Compatibility
 
-The plugin API requires the egui plugin system (**egui ≥ 0.33**). The dependency
-is range-versioned (`>=0.34, <0.36`) so the crate floats with your egui.
+Each egui-rotate release targets **one egui minor** (currently `0.34`), because
+egui's `Plugin` trait signatures can change between minors — egui 0.35 did
+exactly that (`input_hook`/`output_hook` gained a `&Context` parameter), so a
+0.35-compatible release will ship separately.
 
 ## License
 
