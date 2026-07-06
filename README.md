@@ -51,7 +51,7 @@ is disorienting on a cabinet. Attach a virtual cursor that tracks raw mouse
 deltas in logical space:
 
 ```toml
-egui-rotate = { version = "1", features = ["software-cursor"] }
+egui-rotate = { version = "2", features = ["software-cursor"] }
 ```
 
 ```rust
@@ -166,10 +166,15 @@ correct answer.
 
 ## Compatibility
 
-Each egui-rotate release targets **one egui minor** (currently `0.34`), because
-egui's `Plugin` trait signatures can change between minors — egui 0.35 did
-exactly that (`input_hook`/`output_hook` gained a `&Context` parameter), so a
-0.35-compatible release will ship separately.
+Each egui-rotate release targets **one egui minor**, because egui's `Plugin`
+trait signatures can change between minors — egui 0.35 did exactly that
+(`input_hook`/`output_hook` gained a `&Context` parameter). Pick the release
+that matches your egui:
+
+| egui-rotate | egui   |
+|-------------|--------|
+| `2.x`       | `0.35` |
+| `1.x`       | `0.34` |
 
 ## License
 

@@ -33,6 +33,7 @@ fn ime_rects_are_rotated_to_physical_space() {
                 o.ime = Some(IMEOutput {
                     rect: ime_rect,
                     cursor_rect,
+                    should_interrupt_composition: false,
                 });
             });
         });
@@ -95,6 +96,7 @@ fn ime_untouched_without_rotation() {
             o.ime = Some(IMEOutput {
                 rect: ime_rect,
                 cursor_rect: ime_rect,
+                should_interrupt_composition: false,
             });
         });
     });

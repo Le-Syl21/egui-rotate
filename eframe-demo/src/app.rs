@@ -70,7 +70,7 @@ impl eframe::App for EframeDemo {
             self.root_rotation = self.root_rotation.next_cw();
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // ── Toolbar
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -146,7 +146,7 @@ impl eframe::App for EframeDemo {
                         ui.label("This backend doesn't support separate windows (embedded).");
                         return;
                     }
-                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| {
                         egui::Frame::group(ui.style()).show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 if ui

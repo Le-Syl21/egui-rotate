@@ -38,10 +38,11 @@ fn circle_center(out: &egui::FullOutput) -> Pos2 {
 fn unconfigured_child_viewport_is_not_rotated() {
     let child = ViewportId::from_hash_of("child-window");
     let mut plugin = RotationPlugin::new(Rotation::CW90); // root only
+    let ctx = egui::Context::default(); // hooks ignore it; the API just requires one
 
     // input: root begins, then child begins (nested).
     let mut root_in = raw_for(ViewportId::ROOT, PHYSICAL);
-    plugin.input_hook(&mut root_in);
+    plugin.input_hook(&ctx, &mut root_in);
     assert_eq!(
         root_in.screen_rect.unwrap().size(),
         Vec2::new(600.0, 800.0),
@@ -49,7 +50,7 @@ fn unconfigured_child_viewport_is_not_rotated() {
     );
 
     let mut child_in = raw_for(child, Vec2::new(1024.0, 768.0));
-    plugin.input_hook(&mut child_in);
+    plugin.input_hook(&ctx, &mut child_in);
     assert_eq!(
         child_in.screen_rect.unwrap().size(),
         Vec2::new(1024.0, 768.0),
@@ -60,7 +61,7 @@ fn unconfigured_child_viewport_is_not_rotated() {
     let logical = Pos2::new(100.0, 100.0);
 
     let mut child_out = circle_output(logical);
-    plugin.output_hook(&mut child_out);
+    plugin.output_hook(&ctx, &mut child_out);
     assert_eq!(
         circle_center(&child_out),
         logical,
@@ -68,7 +69,7 @@ fn unconfigured_child_viewport_is_not_rotated() {
     );
 
     let mut root_out = circle_output(logical);
-    plugin.output_hook(&mut root_out);
+    plugin.output_hook(&ctx, &mut root_out);
     let expected = Rotation::CW90.inverse_transform_pos(logical, Vec2::new(600.0, 800.0));
     assert!(
         (circle_center(&root_out) - expected).length() < 0.01,
@@ -81,17 +82,18 @@ fn each_viewport_uses_its_own_rotation_and_size() {
     let child = ViewportId::from_hash_of("child");
     let mut plugin = RotationPlugin::new(Rotation::CW90);
     plugin.set_viewport_rotation(child, Rotation::CW180);
+    let ctx = egui::Context::default(); // hooks ignore it; the API just requires one
 
     // Different sizes prove the stack doesn't cross root/child state.
     let mut root_in = raw_for(ViewportId::ROOT, Vec2::new(800.0, 600.0));
-    plugin.input_hook(&mut root_in);
+    plugin.input_hook(&ctx, &mut root_in);
     let mut child_in = raw_for(child, Vec2::new(400.0, 300.0));
-    plugin.input_hook(&mut child_in);
+    plugin.input_hook(&ctx, &mut child_in);
 
     let p = Pos2::new(50.0, 60.0);
 
     let mut child_out = circle_output(p);
-    plugin.output_hook(&mut child_out);
+    plugin.output_hook(&ctx, &mut child_out);
     let expected_child = Rotation::CW180.inverse_transform_pos(p, Vec2::new(400.0, 300.0));
     assert!(
         (circle_center(&child_out) - expected_child).length() < 0.01,
@@ -99,7 +101,7 @@ fn each_viewport_uses_its_own_rotation_and_size() {
     );
 
     let mut root_out = circle_output(p);
-    plugin.output_hook(&mut root_out);
+    plugin.output_hook(&ctx, &mut root_out);
     let expected_root = Rotation::CW90.inverse_transform_pos(p, Vec2::new(600.0, 800.0));
     assert!(
         (circle_center(&root_out) - expected_root).length() < 0.01,

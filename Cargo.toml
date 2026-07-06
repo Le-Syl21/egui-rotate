@@ -1,6 +1,6 @@
 [package]
 name = "egui-rotate"
-version = "1.1.1"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.92"
 authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]
@@ -20,16 +20,16 @@ software-cursor = []
 serde = ["dep:serde", "egui/serde"]
 
 [dependencies]
-# Pinned to the 0.34 minor: egui 0.35 changed the `Plugin` trait signatures
+# Pinned to the 0.35 minor: egui 0.35 changed the `Plugin` trait signatures
 # (`input_hook`/`output_hook` gained a `&Context` parameter), so one code base
-# cannot span both. 0.35 support will land in a dedicated release.
-egui = { version = ">=0.34, <0.35", default-features = false }
+# cannot span 0.34 and 0.35. For egui 0.34, use egui-rotate 1.x.
+egui = { version = ">=0.35, <0.36", default-features = false }
 serde = { version = "1", optional = true, features = ["derive"] }
 
 [dev-dependencies]
-egui = ">=0.34, <0.35"
-egui_glow = ">=0.34, <0.35"
-egui-winit = ">=0.34, <0.35"
+egui = ">=0.35, <0.36"
+egui_glow = ">=0.35, <0.36"
+egui-winit = ">=0.35, <0.36"
 glow = "0.17"
 glutin = "0.32"
 glutin-winit = "0.5"

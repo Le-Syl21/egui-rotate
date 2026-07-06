@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-06
+
+### Changed
+- **egui 0.35 support** (`>=0.35, <0.36`). egui 0.35 added a `&Context` parameter
+  to the `Plugin::input_hook`/`output_hook` signatures; `RotationPlugin` now
+  implements the new signatures. This is a breaking change only in the egui
+  version required — the `RotationPlugin` / `SoftwareCursor` API is unchanged, so
+  migrating is just bumping egui (and egui-rotate) to 0.35 / 2.x.
+
+  Stay on egui-rotate `1.x` for egui 0.34.
+
 ## [1.1.1] - 2026-07-05
 
 ### Changed
