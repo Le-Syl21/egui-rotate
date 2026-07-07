@@ -11,8 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 egui-rotate = { path = ".." }
-# 0.34.3 is yanked-in-practice (requires an unpublished egui-wgpu 0.34.3).
-eframe = { version = "=0.34.2", default-features = false, features = [
+eframe = { version = "0.35", default-features = false, features = [
     "glow",
     "default_fonts",
     "x11",

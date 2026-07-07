@@ -35,7 +35,7 @@ pub(crate) fn rotate_safe_area_insets(
 
 /// Transform a [`RawInput`] from physical screen space to logical UI space.
 ///
-/// Call this **before** passing `RawInput` to [`egui::Context::run`] / `begin_pass`.
+/// Call this **before** passing `RawInput` to [`egui::Context::run_ui`] / `begin_pass`.
 ///
 /// What gets transformed:
 /// - `screen_rect` is rotated (axes swapped for 90°/270°)

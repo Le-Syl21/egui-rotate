@@ -38,7 +38,7 @@
 
 use std::collections::HashMap;
 
-use egui::{FullOutput, RawInput, Vec2, ViewportId};
+use egui::{Context, FullOutput, RawInput, Vec2, ViewportId};
 
 use crate::{CursorIconExt, Rotation};
 
@@ -210,7 +210,7 @@ impl egui::Plugin for RotationPlugin {
         "egui_rotate::RotationPlugin"
     }
 
-    fn input_hook(&mut self, input: &mut RawInput) {
+    fn input_hook(&mut self, _ctx: &Context, input: &mut RawInput) {
         let viewport = input.viewport_id;
         let rotation = self.rotation_for(viewport);
 
@@ -317,7 +317,7 @@ impl egui::Plugin for RotationPlugin {
         cursor.draw(&painter, icon);
     }
 
-    fn output_hook(&mut self, output: &mut FullOutput) {
+    fn output_hook(&mut self, _ctx: &Context, output: &mut FullOutput) {
         let Some(state) = self.pass_stack.pop() else {
             return;
         };
