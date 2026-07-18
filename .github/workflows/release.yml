@@ -39,7 +39,15 @@ jobs:
   publish-crate:
     name: Publish to crates.io
     needs: verify
+    # Pas de publish sur les pré-releases (v*-rc/-beta) : un publish crates.io est
+    # définitif (on ne peut que « yank »). Gaté au niveau du job pour qu'un tag
+    # pré-release ne déclenche même pas de demande d'approbation.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write        # nécessaire pour demander le jeton OIDC à GitHub
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -47,16 +55,26 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libgl1-mesa-dev
+      # Trusted Publishing : aucun secret longue durée. GitHub atteste l'identité
+      # du workflow (repo + fichier + environnement), crates.io vérifie cette
+      # attestation contre la config enregistrée et émet un jeton éphémère,
+      # révoqué automatiquement en fin de job.
+      - name: Get a temporary crates.io token (OIDC)
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: cargo publish
-        # Pas de publish sur les pré-releases (v*-rc/-beta) : un publish crates.io est définitif.
-        if: ${{ !contains(github.ref_name, '-') }}
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --all-features
 
   github-release:
     name: GitHub release
-    needs: publish-crate
+    needs: [verify, publish-crate]
+    # publish-crate est volontairement skippé sur les pré-releases : la release
+    # GitHub doit quand même se faire. On exige donc « verify OK » et « publish
+    # pas en échec » (skipped compris).
+    if: ${{ always() && needs.verify.result == 'success' && needs.publish-crate.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
