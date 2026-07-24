@@ -61,6 +61,10 @@
 //! to rotate pre-tessellation shapes. The older manual helpers
 //! [`transform_raw_input`] and [`transform_clipped_primitives`] are **deprecated
 //! since 1.0** — prefer the plugin.
+//!
+//! # Community & support
+//!
+//! Questions, bugs, beta testing — join the Discord: <https://discord.gg/T37DYHmt2j>
 
 mod input;
 mod output;

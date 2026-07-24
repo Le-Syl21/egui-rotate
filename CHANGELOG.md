@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-24
+
+### Added
+- Discord community & support link (README, crate docs).
+
 ## [2.0.0] - 2026-07-06
 
 ### Changed
@@ -196,7 +201,9 @@ ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 - `rotated_demo` example — winit + glow + egui_glow integration demonstrating
   every feature, with `R` to cycle rotation and `L` to toggle the cursor lock
 
-[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Le-Syl21/egui-rotate/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/Le-Syl21/egui-rotate/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/Le-Syl21/egui-rotate/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Le-Syl21/egui-rotate/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Le-Syl21/egui-rotate/compare/v0.1.6...v1.0.0

@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/egui-rotate.svg)](https://crates.io/crates/egui-rotate)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Discord](https://img.shields.io/badge/Discord-Le--Syl21%20Tools-5865F2?logo=discord&logoColor=white)](https://discord.gg/T37DYHmt2j)
 
 Viewport rotation (0° / 90° / 180° / 270°) for [egui](https://github.com/emilk/egui),
 as a **plugin**.
@@ -23,6 +24,12 @@ ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 That's the whole integration. Pointer/touch input is remapped into the rotated
 space, the entire UI is rendered rotated, and directional OS cursor icons are
 remapped to match.
+
+## Community & support
+
+Questions, bug reports, beta testing, or just want to chat? Join the Discord:
+
+[![Discord](https://img.shields.io/badge/Discord-Le--Syl21%20Tools-5865F2?logo=discord&logoColor=white)](https://discord.gg/T37DYHmt2j)
 
 ## Highlights
 
