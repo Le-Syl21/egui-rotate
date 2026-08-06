@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-06
+
+### Changed
+
+- Update to **egui 0.36** (`egui`/`egui_glow`/`egui-winit` `>=0.36, <0.37`).
+  Breaking only through the egui bump — the egui-rotate API is unchanged.
+- Examples: apply the egui 0.36 `TexturesDelta` contract (several
+  `ImageDelta` batched per texture id, iteration by reference).
+- Tests: explicitly `clear()` unapplied texture deltas — egui 0.36 panics
+  on drop otherwise (headless runs have no painter).
+
 ## [2.0.1] - 2026-07-24
 
 ### Added

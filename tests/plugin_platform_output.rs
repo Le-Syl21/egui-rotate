@@ -28,15 +28,17 @@ fn ime_rects_are_rotated_to_physical_space() {
         let ime_rect = Rect::from_min_max(Pos2::new(10.0, 20.0), Pos2::new(30.0, 60.0));
         let cursor_rect = Rect::from_min_max(Pos2::new(28.0, 20.0), Pos2::new(30.0, 40.0));
 
-        let out = ctx.run_ui(raw(), |ui| {
+        let mut out = ctx.run_ui(raw(), |ui| {
             ui.ctx().output_mut(|o| {
                 o.ime = Some(IMEOutput {
+                    purpose: egui::IMEPurpose::default(),
                     rect: ime_rect,
                     cursor_rect,
                     should_interrupt_composition: false,
                 });
             });
         });
+        out.textures_delta.clear(); // headless: no painter
 
         let ime = out.platform_output.ime.expect("IME output must survive");
         assert_eq!(
@@ -72,9 +74,10 @@ fn safe_area_insets_rotate_with_viewport() {
     }));
 
     let mut content = Rect::NOTHING;
-    let _ = ctx.run_ui(input, |ui| {
+    let mut out = ctx.run_ui(input, |ui| {
         content = ui.ctx().content_rect();
     });
+    out.textures_delta.clear(); // headless: no painter
 
     // 800x600 physical under CW90 → 600x800 logical; the physical top notch
     // lands along the logical *right* edge.
@@ -91,15 +94,17 @@ fn ime_untouched_without_rotation() {
     ctx.add_plugin(RotationPlugin::new(Rotation::None));
 
     let ime_rect = Rect::from_min_max(Pos2::new(10.0, 20.0), Pos2::new(30.0, 60.0));
-    let out = ctx.run_ui(raw(), |ui| {
+    let mut out = ctx.run_ui(raw(), |ui| {
         ui.ctx().output_mut(|o| {
             o.ime = Some(IMEOutput {
+                purpose: egui::IMEPurpose::default(),
                 rect: ime_rect,
                 cursor_rect: ime_rect,
                 should_interrupt_composition: false,
             });
         });
     });
+    out.textures_delta.clear(); // headless: no painter
 
     let ime = out.platform_output.ime.expect("IME output must survive");
     assert_eq!(ime.rect, ime_rect);

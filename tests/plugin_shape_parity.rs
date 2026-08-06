@@ -32,7 +32,7 @@ fn logical_frame(ctx: &egui::Context, logical_size: Vec2) -> (Vec<ClippedShape>,
         screen_rect: Some(Rect::from_min_size(Pos2::ZERO, logical_size)),
         ..Default::default()
     };
-    let out = ctx.run_ui(raw, |ui| {
+    let mut out = ctx.run_ui(raw, |ui| {
         ui.label("Rotated text sample 123");
         let _ = ui.button("Click me");
         let painter = ui.painter().clone();
@@ -42,6 +42,7 @@ fn logical_frame(ctx: &egui::Context, logical_size: Vec2) -> (Vec<ClippedShape>,
             Stroke::new(3.0, Color32::GREEN),
         );
     });
+    out.textures_delta.clear(); // headless: no painter
     (out.shapes, out.pixels_per_point)
 }
 
@@ -154,10 +155,11 @@ fn plugin_rotates_output_shapes() {
         screen_rect: Some(Rect::from_min_size(Pos2::ZERO, PHYSICAL)),
         ..Default::default()
     };
-    let out = ctx.run_ui(raw, |ui| {
+    let mut out = ctx.run_ui(raw, |ui| {
         ui.painter()
             .circle_filled(logical_center, 24.0, Color32::RED);
     });
+    out.textures_delta.clear(); // headless: no painter
 
     // After the plugin's output_hook, the circle must sit at the physical position.
     let expected = rotation.inverse_transform_pos(logical_center, logical_size);
@@ -283,10 +285,11 @@ fn plugin_none_is_passthrough() {
         screen_rect: Some(Rect::from_min_size(Pos2::ZERO, PHYSICAL)),
         ..Default::default()
     };
-    let out = ctx.run_ui(raw, |ui| {
+    let mut out = ctx.run_ui(raw, |ui| {
         ui.painter()
             .circle_filled(logical_center, 24.0, Color32::RED);
     });
+    out.textures_delta.clear(); // headless: no painter
 
     let center = out
         .shapes

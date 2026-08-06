@@ -4,6 +4,19 @@
 use egui::{CursorIcon, Event, Pos2, Rect, Vec2};
 use egui_rotate::{Rotation, RotationPlugin, SoftwareCursor};
 
+/// egui 0.36: `TexturesDelta` panics on drop when its deltas were never
+/// applied. These tests are headless (no painter), so every pass discards
+/// them explicitly through this wrapper.
+fn run_cleared(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    f: impl FnMut(&mut egui::Ui),
+) -> egui::FullOutput {
+    let mut out = ctx.run_ui(input, f);
+    out.textures_delta.clear();
+    out
+}
+
 const PHYSICAL: Vec2 = Vec2 { x: 800.0, y: 600.0 };
 
 fn raw(events: Vec<Event>) -> egui::RawInput {
@@ -25,7 +38,8 @@ fn locked_cursor_hides_os_cursor() {
     );
 
     // A pointer event seeds capture.
-    let out = ctx.run_ui(
+    let out = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
@@ -54,7 +68,8 @@ fn nonlocked_cursor_requests_warp_at_edge() {
 
     // Seed capture at the logical centre, then push far past the right edge via a
     // raw mouse delta in the same batch.
-    let out = ctx.run_ui(
+    let out = run_cleared(
+        &ctx,
         raw(vec![
             Event::PointerMoved(Pos2::new(400.0, 300.0)),
             Event::MouseMoved(Vec2::new(400.0, 0.0)),
@@ -97,14 +112,16 @@ fn keyboard_puts_cursor_dormant_and_mouse_wakes_it() {
     };
 
     // Capture at the physical centre → logical (300, 400).
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
     assert!(!is_dormant());
 
     // A key press puts the cursor to sleep…
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         raw(vec![Event::Key {
             key: egui::Key::ArrowRight,
             physical_key: None,
@@ -121,7 +138,7 @@ fn keyboard_puts_cursor_dormant_and_mouse_wakes_it() {
 
     // …and egui has forgotten the pointer: hover follows the keyboard now.
     let mut has_pointer = true;
-    let _ = ctx.run_ui(raw(vec![]), |ui| {
+    let _ = run_cleared(&ctx, raw(vec![]), |ui| {
         has_pointer = ui.input(|i| i.pointer.has_pointer());
     });
     assert!(!has_pointer, "hover must be cleared while dormant");
@@ -129,9 +146,13 @@ fn keyboard_puts_cursor_dormant_and_mouse_wakes_it() {
     // A deliberate mouse burst (≥ wake threshold) wakes it, hover re-asserted
     // at the updated virtual position.
     let mut pointer = None;
-    let _ = ctx.run_ui(raw(vec![Event::MouseMoved(Vec2::new(10.0, 0.0))]), |ui| {
-        pointer = ui.input(|i| i.pointer.latest_pos());
-    });
+    let _ = run_cleared(
+        &ctx,
+        raw(vec![Event::MouseMoved(Vec2::new(10.0, 0.0))]),
+        |ui| {
+            pointer = ui.input(|i| i.pointer.latest_pos());
+        },
+    );
     assert!(!is_dormant(), "mouse motion should wake the cursor");
     let pointer = pointer.expect("hover must be back after waking");
     assert!(
@@ -166,14 +187,16 @@ fn dormancy_fades_the_cursor() {
     };
 
     // Capture, fully visible.
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         timed(0.0, vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
     assert_eq!(opacity(), 1.0);
 
     // Key → dormant; 50 ms into the 100 ms fade the cursor is half dissolved.
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         timed(
             0.05,
             vec![Event::Key {
@@ -193,11 +216,12 @@ fn dormancy_fades_the_cursor() {
     );
 
     // Past the fade duration: fully dissolved.
-    let _ = ctx.run_ui(timed(0.20, vec![]), |_| {});
+    let _ = run_cleared(&ctx, timed(0.20, vec![]), |_| {});
     assert_eq!(opacity(), 0.0);
 
     // Mouse burst 50 ms later → awake, mid-reform.
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         timed(0.25, vec![Event::MouseMoved(Vec2::new(10.0, 0.0))]),
         |_| {},
     );
@@ -207,7 +231,7 @@ fn dormancy_fades_the_cursor() {
         "cursor should be reforming after waking, opacity = {reforming}"
     );
     // And fully reformed once the fade has run its course.
-    let _ = ctx.run_ui(timed(0.40, vec![]), |_| {});
+    let _ = run_cleared(&ctx, timed(0.40, vec![]), |_| {});
     assert_eq!(opacity(), 1.0);
 }
 
@@ -236,21 +260,22 @@ fn plugin_manages_os_grab_lifecycle() {
     ctx.add_plugin(RotationPlugin::new(Rotation::CW90).with_software_cursor(SoftwareCursor::new()));
 
     // Capture → the plugin requests a Confined grab.
-    let out = ctx.run_ui(
+    let out = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
     assert_eq!(grab_commands(&out), vec![CursorGrab::Confined]);
 
     // Steady state → no redundant commands.
-    let out = ctx.run_ui(raw(vec![]), |_| {});
+    let out = run_cleared(&ctx, raw(vec![]), |_| {});
     assert!(grab_commands(&out).is_empty());
 
     // Rotation switched off → the cursor is released and so is the grab.
     ctx.plugin::<RotationPlugin>()
         .lock()
         .set_rotation(Rotation::None);
-    let out = ctx.run_ui(raw(vec![]), |_| {});
+    let out = run_cleared(&ctx, raw(vec![]), |_| {});
     assert_eq!(grab_commands(&out), vec![CursorGrab::None]);
 }
 
@@ -265,13 +290,18 @@ fn soft_lock_confines_until_pushed_through() {
     );
 
     // Seed capture at the logical centre — (300, 400) for CW90 of 800x600.
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
 
     // Push 50 px past the left edge: overshoot 50 < 200 → still confined.
-    let _ = ctx.run_ui(raw(vec![Event::MouseMoved(Vec2::new(-350.0, 0.0))]), |_| {});
+    let _ = run_cleared(
+        &ctx,
+        raw(vec![Event::MouseMoved(Vec2::new(-350.0, 0.0))]),
+        |_| {},
+    );
     {
         let handle = ctx.plugin::<RotationPlugin>();
         let mut plugin = handle.lock();
@@ -283,7 +313,11 @@ fn soft_lock_confines_until_pushed_through() {
     }
 
     // Keep pushing 160 px more: cumulative 210 ≥ 200 → breakout + warp request.
-    let _ = ctx.run_ui(raw(vec![Event::MouseMoved(Vec2::new(-161.0, 0.0))]), |_| {});
+    let _ = run_cleared(
+        &ctx,
+        raw(vec![Event::MouseMoved(Vec2::new(-161.0, 0.0))]),
+        |_| {},
+    );
     let handle = ctx.plugin::<RotationPlugin>();
     let mut plugin = handle.lock();
     assert!(
@@ -323,7 +357,8 @@ fn os_pin_recentres_stray_os_cursor() {
     };
 
     // Frame 1: capture at the physical centre — inside the dead zone, no warp.
-    let out = ctx.run_ui(
+    let out = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
@@ -334,7 +369,8 @@ fn os_pin_recentres_stray_os_cursor() {
 
     // Frame 2: the real cursor drifted near the right edge (still captured) —
     // the plugin must ask the backend to warp it back to the centre.
-    let out = ctx.run_ui(
+    let out = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(760.0, 300.0))]),
         |_| {},
     );
@@ -356,7 +392,8 @@ fn disabling_rotation_releases_software_cursor() {
     );
 
     // Capture the cursor with a pointer event.
-    let _ = ctx.run_ui(
+    let _ = run_cleared(
+        &ctx,
         raw(vec![Event::PointerMoved(Pos2::new(400.0, 300.0))]),
         |_| {},
     );
@@ -372,7 +409,7 @@ fn disabling_rotation_releases_software_cursor() {
     ctx.plugin::<RotationPlugin>()
         .lock()
         .set_rotation(Rotation::None);
-    let out = ctx.run_ui(raw(vec![]), |_| {});
+    let out = run_cleared(&ctx, raw(vec![]), |_| {});
 
     let handle = ctx.plugin::<RotationPlugin>();
     let plugin = handle.lock();
@@ -388,7 +425,7 @@ fn no_software_cursor_remaps_icon() {
     let ctx = egui::Context::default();
     ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
 
-    let out = ctx.run_ui(raw(vec![]), |ui| {
+    let out = run_cleared(&ctx, raw(vec![]), |ui| {
         ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
     });
 

@@ -450,8 +450,12 @@ impl DemoApp {
 
         // ── 7. Paint
         let painter = self.painter.as_mut().unwrap();
-        for (id, image_delta) in full_output.textures_delta.set {
-            painter.set_texture(id, &image_delta);
+        // egui 0.36: `textures_delta.set` batches several `ImageDelta` per
+        // texture id (SmallVec) — apply them in order.
+        for (id, image_deltas) in &full_output.textures_delta.set {
+            for image_delta in image_deltas {
+                painter.set_texture(*id, image_delta);
+            }
         }
 
         unsafe {
@@ -465,8 +469,8 @@ impl DemoApp {
             full_output.pixels_per_point,
             &clipped_primitives,
         );
-        for id in full_output.textures_delta.free {
-            painter.free_texture(id);
+        for id in &full_output.textures_delta.free {
+            painter.free_texture(*id);
         }
 
         self.gl_window.as_ref().unwrap().swap_buffers().unwrap();

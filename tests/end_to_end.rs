@@ -43,11 +43,14 @@ fn input_rotation_lands_in_logical_space_at_ctx_run() {
     assert_eq!(expected_logical_center, Pos2::new(300.0, 400.0));
 
     let mut seen_pointer = None;
-    let _ = ctx.run_ui(raw, |ui| {
+    let mut full_output = ctx.run_ui(raw, |ui| {
         ui.ctx().input(|i| {
             seen_pointer = i.pointer.interact_pos();
         });
     });
+    // egui 0.36: TexturesDelta panics on drop if deltas were never applied —
+    // headless tests have no painter, so discard them explicitly.
+    full_output.textures_delta.clear();
 
     let pointer = seen_pointer.expect("ctx.input must report the click");
     assert!(
@@ -73,12 +76,13 @@ fn full_pipeline_runs_clean_in_all_rotations() {
         transform_raw_input(&mut raw, rotation);
         let logical_size = raw.screen_rect.unwrap().size();
 
-        let full_output = ctx.run_ui(raw, |ui| {
+        let mut full_output = ctx.run_ui(raw, |ui| {
             ui.heading("Frame test");
             ui.label("body text body text body text");
             let _ = ui.button("ok");
         });
 
+        full_output.textures_delta.clear(); // headless: no painter to apply them
         let pre = ctx.tessellate(full_output.shapes, 1.0);
         let pre_vertex_count: usize = pre
             .iter()
@@ -143,9 +147,10 @@ fn pipeline_zero_cost_when_rotation_is_none() {
         assert_eq!(a, b);
     }
 
-    let full_output = ctx.run_ui(raw, |ui| {
+    let mut full_output = ctx.run_ui(raw, |ui| {
         ui.label("hi");
     });
+    full_output.textures_delta.clear(); // headless: no painter to apply them
     let prims_before: Vec<ClippedPrimitive> = ctx.tessellate(full_output.shapes, 1.0);
     let mut prims_after = prims_before.clone();
     transform_clipped_primitives(&mut prims_after, Rotation::None, PHYSICAL);
