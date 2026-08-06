@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rotation while real window events still go through it. Helper:
   `attach_inspection_from_env`. The ordering contract is pinned by tests
   in both directions; screenshots show the physical (rotated) frame.
+- `plugin_demo` is now a full manual-integration reference for
+  inspection: it wakes the event loop on `request_repaint` (event-loop
+  proxy — without it, background inspection requests starve) and
+  services `ViewportCommand::Screenshot` from the painted back buffer
+  into `Event::Screenshot`. Verified end to end against a live client:
+  tree read, logical click rotating the app, physical screenshot.
 
 ## [3.0.0] - 2026-08-06
 

@@ -392,7 +392,7 @@ impl DemoApp {
         // physical-horizontal one, perpendicular to the rotated text).
         let cursor_icon = self.last_cursor_icon;
         let mut rotation_changed = false;
-        let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
+        let mut full_output = self.egui_ctx.run_ui(raw_input, |ui| {
             rotation_changed = demo_ui(
                 ui,
                 counter,
@@ -472,6 +472,9 @@ impl DemoApp {
         for id in &full_output.textures_delta.free {
             painter.free_texture(*id);
         }
+        // egui 0.36: a TexturesDelta dropped non-empty debug-asserts — the
+        // deltas above have all been applied, say so.
+        full_output.textures_delta.clear();
 
         self.gl_window.as_ref().unwrap().swap_buffers().unwrap();
     }

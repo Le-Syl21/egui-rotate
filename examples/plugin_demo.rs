@@ -150,6 +150,17 @@ impl GlutinWindowContext {
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct DemoApp {
+    /// Wakes the event loop when egui asks for a repaint while the app is
+    /// idle — without it, background repaint requests (animations, the
+    /// egui_inspection server, `request_repaint_after`) starve until the
+    /// next window event.
+    repaint_proxy: winit::event_loop::EventLoopProxy<()>,
+    /// `ViewportCommand::Screenshot` requests captured this frame, serviced
+    /// after painting; the resulting `Event::Screenshot`s feed the next
+    /// frame's raw input (the manual-integration half of what eframe does —
+    /// the egui_inspection screenshot path rides on it).
+    pending_screenshots: Vec<egui::UserData>,
+    screenshot_events: Vec<egui::Event>,
     gl_window: Option<GlutinWindowContext>,
     gl: Option<Arc<glow::Context>>,
     egui_ctx: egui::Context,
@@ -229,7 +240,9 @@ struct DemoWidgets {
 
 /// Read the freshly painted GL back buffer and save it as a timestamped PNG in
 /// the current directory. Returns the file name.
-fn save_screenshot(gl: &glow::Context, [w, h]: [u32; 2]) -> Result<String, String> {
+/// Read the current framebuffer as a top-down RGBA image (alpha forced
+/// opaque — the GL alpha channel is meaningless for consumers).
+fn capture_rgba(gl: &glow::Context, [w, h]: [u32; 2]) -> Result<image::RgbaImage, String> {
     use glow::HasContext as _;
 
     let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -244,14 +257,17 @@ fn save_screenshot(gl: &glow::Context, [w, h]: [u32; 2]) -> Result<String, Strin
             glow::PixelPackData::Slice(Some(&mut buf)),
         );
     }
-
-    // The framebuffer alpha is meaningless for a file; force it opaque.
     for px in buf.chunks_exact_mut(4) {
         px[3] = 255;
     }
     let mut img = image::RgbaImage::from_raw(w, h, buf).ok_or("pixel buffer size mismatch")?;
     // GL rows start at the bottom-left.
     image::imageops::flip_vertical_in_place(&mut img);
+    Ok(img)
+}
+
+fn save_screenshot(gl: &glow::Context, dims: [u32; 2]) -> Result<String, String> {
+    let img = capture_rgba(gl, dims)?;
 
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -275,8 +291,11 @@ fn load_ferris(ctx: &egui::Context) -> egui::TextureHandle {
 }
 
 impl DemoApp {
-    fn new() -> Self {
+    fn new(repaint_proxy: winit::event_loop::EventLoopProxy<()>) -> Self {
         Self {
+            repaint_proxy,
+            pending_screenshots: Vec::new(),
+            screenshot_events: Vec::new(),
             gl_window: None,
             gl: None,
             egui_ctx: egui::Context::default(),
@@ -300,7 +319,7 @@ impl DemoApp {
     // `SoftwareCursor::with_os_grab`).
 }
 
-impl winit::application::ApplicationHandler for DemoApp {
+impl winit::application::ApplicationHandler<()> for DemoApp {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let gl_window = unsafe { GlutinWindowContext::new(event_loop) };
         let gl = unsafe {
@@ -343,6 +362,15 @@ impl winit::application::ApplicationHandler for DemoApp {
                     .with_scale(1.5),
             ),
         );
+
+        // Repaint requests must wake the event loop even with no window
+        // events pending (inspection requests, animations). The callback
+        // fires from egui; the proxy turns it into a user event, handled
+        // below by requesting a redraw.
+        let proxy = self.repaint_proxy.clone();
+        self.egui_ctx.set_request_repaint_callback(move |_| {
+            let _ = proxy.send_event(());
+        });
 
         // Optional: serve the egui_inspection protocol (egui_mcp) when
         // EGUI_INSPECTION is set. AFTER the RotationPlugin — the ordering
@@ -426,6 +454,12 @@ impl winit::application::ApplicationHandler for DemoApp {
         }
     }
 
+    fn user_event(&mut self, _: &winit::event_loop::ActiveEventLoop, (): ()) {
+        if let Some(w) = &self.gl_window {
+            w.window().request_redraw();
+        }
+    }
+
     fn exiting(&mut self, _: &winit::event_loop::ActiveEventLoop) {
         if let Some(painter) = &mut self.painter {
             painter.destroy();
@@ -465,6 +499,8 @@ impl DemoApp {
         // ── Gather input. egui must see the *physical* screen rect; the plugin
         //    swaps it to logical in `input_hook`.
         let mut raw_input = self.egui_winit.as_mut().unwrap().take_egui_input(window);
+        // Deliver screenshots captured at the end of the previous frame.
+        raw_input.events.append(&mut self.screenshot_events);
         if raw_input.screen_rect.is_none() {
             raw_input.screen_rect =
                 Some(egui::Rect::from_min_size(egui::Pos2::ZERO, physical_size));
@@ -476,7 +512,7 @@ impl DemoApp {
         let mut screenshot = false;
         let widgets = &mut self.widgets;
         let ferris = self.ferris.as_ref();
-        let full_output = self.egui_ctx.run_ui(raw_input, |ui| {
+        let mut full_output = self.egui_ctx.run_ui(raw_input, |ui| {
             demo_ui(
                 ui,
                 &mut rotation,
@@ -562,6 +598,43 @@ impl DemoApp {
         }
         for id in &full_output.textures_delta.free {
             painter.free_texture(*id);
+        }
+        // egui 0.36: a TexturesDelta dropped non-empty debug-asserts — the
+        // deltas above have all been applied, say so.
+        full_output.textures_delta.clear();
+
+        // Service `ViewportCommand::Screenshot` (the egui_inspection
+        // screenshot path, among others): read the freshly painted back
+        // buffer and queue the `Event::Screenshot` for the next frame.
+        for viewport in full_output.viewport_output.values() {
+            for cmd in &viewport.commands {
+                if let egui::ViewportCommand::Screenshot(user_data) = cmd {
+                    self.pending_screenshots.push(user_data.clone());
+                }
+            }
+        }
+        if !self.pending_screenshots.is_empty() {
+            match capture_rgba(self.gl.as_ref().unwrap(), physical_dimensions) {
+                Ok(img) => {
+                    let image = std::sync::Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+                        [img.width() as usize, img.height() as usize],
+                        img.as_raw(),
+                    ));
+                    for user_data in self.pending_screenshots.drain(..) {
+                        self.screenshot_events.push(egui::Event::Screenshot {
+                            viewport_id: egui::ViewportId::ROOT,
+                            user_data,
+                            image: std::sync::Arc::clone(&image),
+                        });
+                    }
+                    // The event must reach a pass: wake the loop.
+                    self.egui_ctx.request_repaint();
+                }
+                Err(err) => {
+                    log::warn!("screenshot capture failed: {err}");
+                    self.pending_screenshots.clear();
+                }
+            }
         }
 
         self.gl_window.as_ref().unwrap().swap_buffers().unwrap();
@@ -719,7 +792,9 @@ fn demo_ui(
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let event_loop = winit::event_loop::EventLoop::new().unwrap();
-    let mut app = DemoApp::new();
+    let event_loop = winit::event_loop::EventLoop::<()>::with_user_event()
+        .build()
+        .unwrap();
+    let mut app = DemoApp::new(event_loop.create_proxy());
     event_loop.run_app(&mut app).expect("event loop failed");
 }
