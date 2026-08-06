@@ -54,6 +54,14 @@
 //! - AccessKit accessibility node geometry is reported in logical (un-rotated)
 //!   space; assistive technologies see pre-rotation coordinates.
 //!
+//! ## Remote inspection (feature `inspection`, opt-in)
+//!
+//! Wire [`egui_inspection`](https://docs.rs/egui_inspection) — the protocol
+//! behind the `egui_mcp` MCP server — into a rotated app with the plugin
+//! ordering it needs: call [`attach_inspection_from_env`] **after**
+//! registering the [`RotationPlugin`]. See [`inspection`] for the ordering
+//! contract and the extra pieces a manual (non-eframe) integration needs.
+//!
 //! ## Custom integration (without the plugin)
 //!
 //! If you cannot use the plugin, the building blocks are public: [`Rotation`]'s

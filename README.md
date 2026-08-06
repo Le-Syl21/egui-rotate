@@ -121,11 +121,46 @@ Waking is automatic in both cases: a click, wheel tick, touch, or a small burst
 of mouse motion (`with_wake_threshold`, default 6 px — raise it on cabinets that
 shake under nudging) brings the cursor back where it was.
 
+## Remote inspection (feature `inspection`, opt-in)
+
+Rotated apps can be observed and driven from the outside — by the
+[`egui_mcp`](https://crates.io/crates/egui_mcp) MCP server (AI agents,
+tooling) or anything else speaking the
+[`egui_inspection`](https://crates.io/crates/egui_inspection) protocol:
+read the AccessKit tree, inject clicks and text, capture screenshots.
+
+```rust
+ctx.add_plugin(RotationPlugin::new(Rotation::CW90));
+// AFTER the RotationPlugin — ordering is the contract:
+let _ = egui_rotate::attach_inspection_from_env(&ctx, Some("my-app".into()));
+```
+
+Run with `EGUI_INSPECTION=1` and the app serves on `127.0.0.1:5719`.
+
+Why the ordering matters: the inspector reasons in **logical** (unrotated)
+space, so the events it injects are logical; `RotationPlugin` rotates
+**physical** window events. egui runs plugin hooks in registration order,
+so registering inspection *after* rotation means each event kind crosses
+exactly one transform. Both directions are pinned by tests
+(`tests/inspection_rotation.rs`). Screenshots show the **physical
+(rotated) frame** — map through [`Rotation`] to align them with logical
+tree coordinates.
+
+Manual (non-eframe) integrations need two extra pieces, both shown in
+`plugin_demo`:
+
+- **Repaint wake** — egui repaint requests must wake your event loop
+  (event-loop proxy → `request_redraw`), or background inspection
+  requests starve while the window is idle;
+- **Screenshot servicing** — handle `ViewportCommand::Screenshot` by
+  reading the freshly painted back buffer and feeding
+  `Event::Screenshot` into the next frame.
+
 ## Examples & demos
 
 | Demo | Stack | Run |
 |---|---|---|
-| `plugin_demo` | winit + glow (no framework) | `cargo run --example plugin_demo --features software-cursor` |
+| `plugin_demo` | winit + glow (no framework), remote inspection | `EGUI_INSPECTION=1 cargo run --example plugin_demo --features "software-cursor inspection"` |
 | `rotated_demo` | winit + glow, **manual/legacy** API | `cargo run --example rotated_demo --features software-cursor` |
 | [`eframe-demo/`](eframe-demo) | eframe — child window + perf, **native & web** | `cd eframe-demo && cargo run` (web: see its [README](eframe-demo/README.md)) |
 
@@ -180,6 +215,7 @@ that matches your egui:
 
 | egui-rotate | egui   |
 |-------------|--------|
+| `3.x`       | `0.36` |
 | `2.x`       | `0.35` |
 | `1.x`       | `0.34` |
 
