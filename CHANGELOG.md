@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-06
+
+### Added
+
+- `inspection` feature: wire [`egui_inspection`](https://crates.io/crates/egui_inspection)
+  (the protocol behind the `egui_mcp` MCP server) into a rotated app with
+  the plugin ordering it needs — register the inspection plugin **after**
+  `RotationPlugin`, so events injected in logical space bypass the
+  rotation while real window events still go through it. Helper:
+  `attach_inspection_from_env`. The ordering contract is pinned by tests
+  in both directions; screenshots show the physical (rotated) frame.
+
 ## [3.0.0] - 2026-08-06
 
 ### Changed

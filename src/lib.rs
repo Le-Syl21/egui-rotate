@@ -83,6 +83,11 @@ pub use shape_rotate::{rotate_clipped_shapes, rotate_shape};
 mod cursor_icon;
 pub use cursor_icon::CursorIconExt;
 
+#[cfg(feature = "inspection")]
+pub mod inspection;
+#[cfg(feature = "inspection")]
+pub use inspection::attach_inspection_from_env;
+
 #[cfg(feature = "software-cursor")]
 mod cursor;
 #[cfg(feature = "software-cursor")]

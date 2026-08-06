@@ -1,6 +1,6 @@
 [package]
 name = "egui-rotate"
-version = "3.0.0"
+version = "3.1.0"
 edition = "2021"
 rust-version = "1.92"
 authors = ["Sylvain Gargasson <sylvain.gargasson@gmail.com>"]
@@ -18,12 +18,19 @@ all-features = true
 default = []
 software-cursor = []
 serde = ["dep:serde", "egui/serde"]
+# Wire `egui_inspection` (the protocol behind `egui_mcp`) into a rotated
+# app — the helper enforces the plugin ordering that keeps injected
+# logical-space events out of the rotation path.
+inspection = ["dep:egui_inspection"]
 
 [dependencies]
 # Pinned to the 0.35 minor: egui 0.35 changed the `Plugin` trait signatures
 # (`input_hook`/`output_hook` gained a `&Context` parameter), so one code base
 # cannot span 0.34 and 0.35. For egui 0.34, use egui-rotate 1.x.
 egui = { version = ">=0.36, <0.37", default-features = false }
+# Optional: serve the egui_inspection protocol (egui_mcp & friends) with
+# rotation-aware plugin ordering. See `src/inspection.rs`.
+egui_inspection = { version = "0.36", optional = true, features = ["plugin"] }
 serde = { version = "1", optional = true, features = ["derive"] }
 
 [dev-dependencies]

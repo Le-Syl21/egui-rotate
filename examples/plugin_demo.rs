@@ -344,6 +344,17 @@ impl winit::application::ApplicationHandler for DemoApp {
             ),
         );
 
+        // Optional: serve the egui_inspection protocol (egui_mcp) when
+        // EGUI_INSPECTION is set. AFTER the RotationPlugin — the ordering
+        // contract that keeps injected logical events out of the rotation
+        // (see src/inspection.rs and tests/inspection_rotation.rs).
+        #[cfg(feature = "inspection")]
+        if let Ok(true) =
+            egui_rotate::attach_inspection_from_env(&self.egui_ctx, Some("plugin_demo".into()))
+        {
+            eprintln!("egui_inspection: serving (EGUI_INSPECTION set)");
+        }
+
         self.ferris = Some(load_ferris(&self.egui_ctx));
 
         self.gl_window = Some(gl_window);
