@@ -105,6 +105,13 @@ pub struct SoftwareCursor {
     wake_accum: f32,
     /// `RawInput::time` of the last wake motion, for the burst-reset pause.
     last_wake_motion: Option<f64>,
+    /// Last absolute pointer position seen while awake or dozing, so motion
+    /// reported as `PointerMoved` can wake the cursor too. Relative
+    /// `MouseMoved` only flows while the OS grab is actually held, and a
+    /// compositor is free to drop that grab (Mutter does, when another
+    /// window of the app takes the pointer focus) — without this, a dormant
+    /// cursor then has no way back and the mouse looks dead.
+    last_wake_pointer: Option<Pos2>,
     /// One-shot: inject `PointerGone` on the next pass (entered dormancy).
     pending_hover_clear: bool,
     /// One-shot: re-assert hover on the next pass (woke via [`Self::set_dormant`]).
@@ -135,6 +142,7 @@ impl Default for SoftwareCursor {
             wake_threshold: DEFAULT_WAKE_THRESHOLD,
             wake_accum: 0.0,
             last_wake_motion: None,
+            last_wake_pointer: None,
             pending_hover_clear: false,
             pending_hover_wake: false,
             fade_secs: DEFAULT_FADE.as_secs_f32(),
@@ -438,6 +446,7 @@ impl SoftwareCursor {
         self.dormant = false;
         self.wake_accum = 0.0;
         self.last_wake_motion = None;
+        self.last_wake_pointer = None;
         self.pending_hover_clear = false;
         self.pending_hover_wake = false;
         self.opacity = 1.0;
@@ -683,6 +692,12 @@ impl SoftwareCursor {
         for event in events {
             match event {
                 Event::MouseMoved(delta) => motion += delta.length(),
+                Event::PointerMoved(pos) => {
+                    if let Some(prev) = self.last_wake_pointer {
+                        motion += (*pos - prev).length();
+                    }
+                    self.last_wake_pointer = Some(*pos);
+                }
                 Event::PointerButton { .. } | Event::MouseWheel { .. } | Event::Touch { .. } => {
                     deliberate = true;
                 }
