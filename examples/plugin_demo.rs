@@ -261,7 +261,8 @@ fn capture_rgba(gl: &glow::Context, [w, h]: [u32; 2]) -> Result<image::RgbaImage
             glow::PixelPackData::Slice(Some(&mut buf)),
         );
     }
-    for px in buf.chunks_exact_mut(4) {
+    let (pixels, _) = buf.as_chunks_mut::<4>();
+    for px in pixels {
         px[3] = 255;
     }
     let mut img = image::RgbaImage::from_raw(w, h, buf).ok_or("pixel buffer size mismatch")?;

@@ -902,7 +902,8 @@ fn baked_cursor_colored(
     for p in &pts {
         mesh.colored_vertex(*p, fill);
     }
-    for t in tris.chunks_exact(3) {
+    let (triples, _) = tris.as_chunks::<3>();
+    for t in triples {
         mesh.add_triangle(t[0], t[1], t[2]);
     }
 
