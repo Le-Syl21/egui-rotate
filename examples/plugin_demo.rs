@@ -22,6 +22,10 @@ use egui_rotate::{
 };
 use egui_winit::winit;
 use winit::raw_window_handle::HasWindowHandle as _;
+// `glow` comes from `egui_glow`, which re-exports it: two crates naming the
+// same GL bindings must agree on the version or the types differ, and that
+// version is egui's to choose.
+use egui_glow::glow;
 
 const PHYSICAL_WIDTH: u32 = 800;
 const PHYSICAL_HEIGHT: u32 = 600;

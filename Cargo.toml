@@ -37,7 +37,6 @@ serde = { version = "1", optional = true, features = ["derive"] }
 egui = ">=0.36, <0.37"
 egui_glow = ">=0.36, <0.37"
 egui-winit = ">=0.36, <0.37"
-glow = "0.17"
 glutin = "0.32"
 glutin-winit = "0.5"
 log = "0.4"
