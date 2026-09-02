@@ -24,9 +24,10 @@ serde = ["dep:serde", "egui/serde"]
 inspection = ["dep:egui_inspection"]
 
 [dependencies]
-# Pinned to the 0.35 minor: egui 0.35 changed the `Plugin` trait signatures
-# (`input_hook`/`output_hook` gained a `&Context` parameter), so one code base
-# cannot span 0.34 and 0.35. For egui 0.34, use egui-rotate 1.x.
+# Pinned to a single egui minor: each one has moved the `Plugin` surface this
+# crate implements (0.35 gave `input_hook`/`output_hook` a `&Context`), so one
+# code base cannot span two. egui 0.36 -> egui-rotate 3.x, 0.35 -> 2.x,
+# 0.34 -> 1.x.
 egui = { version = ">=0.36, <0.37", default-features = false }
 # Optional: serve the egui_inspection protocol (egui_mcp & friends) with
 # rotation-aware plugin ordering. See `src/inspection.rs`.
