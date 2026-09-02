@@ -9,7 +9,10 @@ updates:
   # Crates: one grouped PR a month for the routine bumps, and a separate PR
   # per major, so a breaking change never holds the rest of them hostage.
   - package-ecosystem: cargo
-    directory: /
+    # Two crates, no workspace tying them together: the library at the root and
+    # the eframe demo beside it, which has its own manifest and its own eframe
+    # requirement — the one thing that let it drift a minor behind unnoticed.
+    directories: ["/", "/eframe-demo"]
     schedule:
       interval: monthly
     groups:
