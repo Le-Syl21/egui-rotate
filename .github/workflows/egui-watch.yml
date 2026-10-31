@@ -1,0 +1,45 @@
+name: egui watch
+
+# Once a day, compare the newest egui on crates.io with the egui range this
+# crate accepts. A newer minor means apps cannot move to it until we release
+# for it, so open an issue the same day. Nothing is built: one request to
+# crates.io, one to GitHub.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare with the latest egui
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # The upper bound of the egui requirement, e.g. ">=0.37, <0.38" -> 0.38
+          bound=$(grep -m1 -E '^egui = ' Cargo.toml | grep -oE '<[0-9]+\.[0-9]+' | tr -d '<')
+          latest=$(curl -fsS -A "${GITHUB_REPOSITORY} egui-watch" \
+            https://crates.io/api/v1/crates/egui | jq -r .crate.max_stable_version)
+          echo "accepted: below $bound, latest egui: $latest"
+          # Is latest >= bound? (compare major.minor numerically)
+          if [ "$(printf '%s\n%s\n' "$bound" "${latest%.*}" | sort -V | head -1)" != "$bound" ]; then
+            echo "Up to date."
+            exit 0
+          fi
+          title="egui ${latest%.*} is out"
+          if gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "Issue already open."
+            exit 0
+          fi
+          body=$(printf '%s\n\n%s\n\n%s\n' \
+            "egui $latest is on crates.io, and this crate only accepts egui below $bound." \
+            "Apps on egui ${latest%.*} cannot use this crate until a release supports it: port it, run the tests and publish." \
+            "Opened by the daily egui watch (.github/workflows/egui-watch.yml).")
+          gh issue create --title "$title" --body "$body"
