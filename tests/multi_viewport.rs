@@ -20,10 +20,10 @@ fn raw_for(viewport: ViewportId, size: Vec2) -> egui::RawInput {
 
 fn circle_output(center: Pos2) -> egui::FullOutput {
     let mut out = egui::FullOutput::default();
-    out.shapes.push(ClippedShape {
-        clip_rect: Rect::EVERYTHING,
-        shape: Shape::circle_filled(center, 5.0, Color32::RED),
-    });
+    out.shapes.push(ClippedShape::new(
+        Rect::EVERYTHING,
+        Shape::circle_filled(center, 5.0, Color32::RED),
+    ));
     out
 }
 

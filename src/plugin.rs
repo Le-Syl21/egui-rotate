@@ -312,7 +312,7 @@ impl egui::Plugin for RotationPlugin {
         let icon = ctx.output(|o| o.cursor_icon);
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
-            egui::Id::new("egui_rotate::software_cursor"),
+            egui::Id::unique("egui_rotate::software_cursor"),
         ));
         cursor.draw(&painter, icon);
     }

@@ -63,6 +63,7 @@ fn input_wheel_delta_rotated() {
             unit: egui::MouseWheelUnit::Line,
             delta: Vec2::new(1.0, 0.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: Default::default(),
         }],
         ..Default::default()

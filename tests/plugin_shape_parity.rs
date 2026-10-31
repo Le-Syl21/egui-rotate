@@ -11,7 +11,7 @@
 //! including the clockwise `angle` sign used for text / rect / ellipse.
 
 use egui::{
-    epaint::{ClippedPrimitive, ClippedShape, Primitive},
+    epaint::{BandPoint, BandShape, ClippedPrimitive, ClippedShape, Primitive},
     Color32, Pos2, Rect, Stroke, Vec2,
 };
 use egui_rotate::{rotate_clipped_shapes, transform_clipped_primitives, Rotation, RotationPlugin};
@@ -41,6 +41,16 @@ fn logical_frame(ctx: &egui::Context, logical_size: Vec2) -> (Vec<ClippedShape>,
             [Pos2::new(10.0, 10.0), Pos2::new(60.0, 90.0)],
             Stroke::new(3.0, Color32::GREEN),
         );
+        // A varying-width band, itself tilted around a pivot (egui 0.37)
+        let points = vec![
+            BandPoint::new(200.0, 40.0..=60.0),
+            BandPoint::new(240.0, 30.0..=80.0),
+            BandPoint::new(300.0, 50.0..=55.0),
+        ];
+        painter.add(egui::Shape::Band(
+            BandShape::filled(points, Color32::BLUE)
+                .with_angle_and_pivot(0.3, Pos2::new(250.0, 50.0)),
+        ));
     });
     out.textures_delta.clear(); // headless: no painter
     (out.shapes, out.pixels_per_point)
@@ -91,7 +101,11 @@ fn shape_rotation_matches_primitive_rotation() {
             rotation.transform_screen_rect(Rect::from_min_size(Pos2::ZERO, PHYSICAL));
         let logical_size = logical_rect.size();
 
-        let (shapes, ppp) = logical_frame(&ctx, logical_size);
+        let (mut shapes, ppp) = logical_frame(&ctx, logical_size);
+        // Scale and move the first shape after tessellation, as egui 0.37 does
+        // for a popup growing into place: the rotation has to carry it.
+        shapes[0].transform_after_tessellation =
+            egui::emath::TSTransform::new(Vec2::new(30.0, -12.0), 0.8);
         assert!(
             !shapes.is_empty(),
             "frame produced no shapes for {rotation:?}"

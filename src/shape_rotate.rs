@@ -35,6 +35,23 @@ pub fn rotate_clipped_shapes(shapes: &mut [ClippedShape], rotation: Rotation, lo
         clipped.clip_rect = rotation.inverse_transform_rect(clipped.clip_rect, logical_size);
 
         rotate_shape(&mut clipped.shape, rotation, logical_size);
+
+        // egui 0.37 can scale and move a shape after tessellation (a popup
+        // growing into place). That transform works in logical space, around
+        // the logical origin; once the shape is in physical space it has to
+        // work around the physical image of that origin instead. With M the
+        // rotation map and T = (s, t): M(T(p)) = T'(M(p)) for T' = (s, M(t) - s·M(0)).
+        let t = clipped.transform_after_tessellation;
+        if t != egui::emath::TSTransform::IDENTITY {
+            let origin = rotation
+                .inverse_transform_pos(Pos2::ZERO, logical_size)
+                .to_vec2();
+            let moved = rotation
+                .inverse_transform_pos(t.translation.to_pos2(), logical_size)
+                .to_vec2();
+            clipped.transform_after_tessellation =
+                egui::emath::TSTransform::new(moved - t.scaling * origin, t.scaling);
+        }
     }
 }
 
@@ -132,6 +149,19 @@ pub fn rotate_shape(shape: &mut Shape, rotation: Rotation, logical_size: Vec2) {
         Shape::CubicBezier(b) => {
             for p in b.points.iter_mut() {
                 *p = map(*p);
+            }
+        }
+
+        // A band is drawn rotated by its own `angle` around the origin, its
+        // samples staying in the band's frame (x along it, a y range across).
+        // Adding our angle composes the rotations; the translation part of
+        // the map is then carried by the samples, brought into the new frame.
+        Shape::Band(b) => {
+            b.angle += angle;
+            let shift = egui::emath::Rot2::from_angle(-b.angle) * map(Pos2::ZERO).to_vec2();
+            for p in b.points.iter_mut() {
+                p.x += shift.x;
+                p.y = egui::Rangef::new(p.y.min + shift.y, p.y.max + shift.y);
             }
         }
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-31
+
+### Changed
+
+- egui 0.37 (`>=0.37, <0.38`). The egui-rotate API is unchanged; the major
+  version only tracks the breaking egui bump.
+
+### Fixed
+
+- Shapes that egui 0.37 scales or moves after tessellation (a popup growing
+  into place, `ClippedShape::transform_after_tessellation`) keep their place
+  in a rotated viewport: the transform is carried into physical space with
+  the shape, instead of acting around the logical origin.
+- The new `Shape::Band` (a varying-width band) is rotated like the other
+  shapes that carry their own angle.
+- `plugin_demo` completes `ViewportCommand::Screenshot` through egui 0.37's
+  `ScreenshotCallback` (the `Event::Screenshot` round trip is gone).
+
 ## [3.1.0] - 2026-08-06
 
 ### Added

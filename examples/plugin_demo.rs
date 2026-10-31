@@ -159,12 +159,10 @@ struct DemoApp {
     /// egui_inspection server, `request_repaint_after`) starve until the
     /// next window event.
     repaint_proxy: winit::event_loop::EventLoopProxy<()>,
-    /// `ViewportCommand::Screenshot` requests captured this frame, serviced
-    /// after painting; the resulting `Event::Screenshot`s feed the next
-    /// frame's raw input (the manual-integration half of what eframe does —
-    /// the egui_inspection screenshot path rides on it).
-    pending_screenshots: Vec<egui::UserData>,
-    screenshot_events: Vec<egui::Event>,
+    /// `ViewportCommand::Screenshot` requests captured this frame, completed
+    /// after painting with the back buffer (the manual-integration half of
+    /// what eframe does — the egui_inspection screenshot path rides on it).
+    pending_screenshots: Vec<egui::ScreenshotCallback>,
     gl_window: Option<GlutinWindowContext>,
     gl: Option<Arc<glow::Context>>,
     egui_ctx: egui::Context,
@@ -300,7 +298,6 @@ impl DemoApp {
         Self {
             repaint_proxy,
             pending_screenshots: Vec::new(),
-            screenshot_events: Vec::new(),
             gl_window: None,
             gl: None,
             egui_ctx: egui::Context::default(),
@@ -504,8 +501,6 @@ impl DemoApp {
         // ── Gather input. egui must see the *physical* screen rect; the plugin
         //    swaps it to logical in `input_hook`.
         let mut raw_input = self.egui_winit.as_mut().unwrap().take_egui_input(window);
-        // Deliver screenshots captured at the end of the previous frame.
-        raw_input.events.append(&mut self.screenshot_events);
         if raw_input.screen_rect.is_none() {
             raw_input.screen_rect =
                 Some(egui::Rect::from_min_size(egui::Pos2::ZERO, physical_size));
@@ -610,11 +605,11 @@ impl DemoApp {
 
         // Service `ViewportCommand::Screenshot` (the egui_inspection
         // screenshot path, among others): read the freshly painted back
-        // buffer and queue the `Event::Screenshot` for the next frame.
+        // buffer and complete each request's callback with it.
         for viewport in full_output.viewport_output.values() {
             for cmd in &viewport.commands {
-                if let egui::ViewportCommand::Screenshot(user_data) = cmd {
-                    self.pending_screenshots.push(user_data.clone());
+                if let egui::ViewportCommand::Screenshot(callback) = cmd {
+                    self.pending_screenshots.push(callback.clone());
                 }
             }
         }
@@ -625,14 +620,10 @@ impl DemoApp {
                         [img.width() as usize, img.height() as usize],
                         img.as_raw(),
                     ));
-                    for user_data in self.pending_screenshots.drain(..) {
-                        self.screenshot_events.push(egui::Event::Screenshot {
-                            viewport_id: egui::ViewportId::ROOT,
-                            user_data,
-                            image: std::sync::Arc::clone(&image),
-                        });
+                    for callback in self.pending_screenshots.drain(..) {
+                        callback.complete(std::sync::Arc::clone(&image));
                     }
-                    // The event must reach a pass: wake the loop.
+                    // Whoever waits on the image may need a pass: wake the loop.
                     self.egui_ctx.request_repaint();
                 }
                 Err(err) => {
